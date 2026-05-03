@@ -1,0 +1,28 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Vector store (large, generated)
+chroma_db/
+
+# Logs
+logs/
+
+# Data — textbooks (large PDFs), raw scraped data
+data/textbooks/
+data/answer_keys/
+unity_raw.jsonl
+
+# Job apps — personal info and generated output
+data/job-apps/components.yaml
+data/job-apps/output/
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
