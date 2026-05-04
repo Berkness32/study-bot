@@ -178,8 +178,23 @@ Return only valid JSON, no markdown, no explanation."""
     job_info["url"]       = url
     job_info["full_text"] = full_text[:8000]
 
+    # Capture the actual apply URL (may redirect to ATS like Greenhouse)
+    with sync_playwright() as p2:
+        browser2 = p2.chromium.launch(headless=headless)
+        page2    = browser2.new_page()
+        page2.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page2.wait_for_timeout(2000)
+        apply_url = page2.evaluate("""() => {
+            const links = [...document.querySelectorAll('a')];
+            const applyLink = links.find(a => /apply/i.test(a.innerText) && a.href && !a.href.includes('builtin'));
+            return applyLink ? applyLink.href : null;
+        }""")
+        browser2.close()
+
+    job_info["apply_url"] = apply_url or url
     print(f"\n  Job Title : {job_info.get('job_title', 'N/A')}")
     print(f"  Company   : {job_info.get('company', 'N/A')}")
+    print(f"  Apply URL : {job_info['apply_url']}")
     print(f"\n  Summary   : {job_info.get('summary', '')[:300]}...")
     return job_info
 
@@ -434,7 +449,7 @@ def build_resume_docx(job_info: dict, selected: dict,
             continue
         proj = proj_lookup[proj_title]
         p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(4)
+        p.paragraph_format.space_before = Pt(8)
         p.paragraph_format.space_after  = Pt(1)
         bold_run = p.add_run(proj["role"])
         bold_run.bold = True
@@ -453,7 +468,7 @@ def build_resume_docx(job_info: dict, selected: dict,
     _add_section_header(doc, "Education:")
     for edu in components.get("education", []):
         p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(4)
+        p.paragraph_format.space_before = Pt(8)
         p.paragraph_format.space_after  = Pt(0)
         run = p.add_run(edu["institution"])
         run.bold = True
@@ -498,7 +513,7 @@ def build_resume_docx(job_info: dict, selected: dict,
 
     def _write_exp_block(sel_exp: dict):
         p1 = doc.add_paragraph()
-        p1.paragraph_format.space_before = Pt(4)
+        p1.paragraph_format.space_before = Pt(8)
         p1.paragraph_format.space_after  = Pt(0)
         r1 = p1.add_run(sel_exp["title"])
         r1.bold = True
@@ -527,7 +542,7 @@ def build_resume_docx(job_info: dict, selected: dict,
 
     if additional_exp:
         _add_section_header(doc, "Additional Experience:")
-        for sel_exp in additional_exp:
+        for sel_exp in additional_exp[:2]:
             _write_exp_block(sel_exp)
 
     doc.save(str(output_path))
@@ -742,7 +757,7 @@ Resume summary:
 {resume_text[:2000]}
 
 Form fields:
-{json.dumps(fields[:20], indent=2)}
+{json.dumps([f for f in fields[:20] if f.get("id") or f.get("name")], indent=2)}
 
 For each field decide what value to fill. Return ONLY a JSON array where each item has:
 - "id": field id
@@ -764,7 +779,7 @@ Return only valid JSON array, no markdown."""
     except json.JSONDecodeError:
         fill_plan = []
 
-    flagged = [f for f in fill_plan if f.get("flagged")]
+    flagged = [f for f in fill_plan if f.get("flagged") and (f.get("name") or f.get("id"))]
     if flagged:
         print(f"\n  ⚠️  {len(flagged)} field(s) flagged as unknown — will be left blank:")
         for f in flagged:
@@ -779,6 +794,22 @@ Return only valid JSON array, no markdown."""
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
         page.wait_for_timeout(2000)
 
+        # ── Upload resume and cover letter if file fields exist ──────────────
+        resume_path_str = docs.get("resume_path", "")
+        cover_path_str  = docs.get("cover_letter_path", "")
+        for file_id, file_path in [("resume", resume_path_str), ("cover_letter", cover_path_str)]:
+            if not file_path or not os.path.exists(file_path):
+                continue
+            try:
+                el = page.query_selector(f"#{file_id}")
+                if el:
+                    el.set_input_files(file_path)
+                    filled_summary.append({"field": file_id, "value": f"[file: {Path(file_path).name}]"})
+                    print(f"  Uploaded {file_id}: {Path(file_path).name}")
+            except Exception as e:
+                print(f"  Warning: Could not upload '{file_id}': {e}")
+
+        # ── Fill standard text/tel fields ────────────────────────────────────
         for field_plan in fill_plan:
             value = field_plan.get("value", "")
             if not value or field_plan.get("flagged"):
@@ -789,12 +820,62 @@ Return only valid JSON array, no markdown."""
                 selector = f"#{field_id}" if field_id else f"[name='{field_name}']"
                 el = page.query_selector(selector)
                 if el:
+                    input_type = el.get_attribute("type") or ""
                     tag = el.evaluate("el => el.tagName.toLowerCase()")
+                    if input_type == "file":
+                        continue  # already handled above
                     if tag in ("input", "textarea"):
                         el.fill(value)
                         filled_summary.append({"field": field_id or field_name, "value": value[:50]})
             except Exception as e:
                 print(f"  Warning: Could not fill '{field_id or field_name}': {e}")
+
+        # ── Fill Greenhouse dropdown/select questions via visible label click ─
+        greenhouse_answers = {
+            "At the time of applying, are you 18 years of age or older": "Yes",
+            "Are you authorized to work in the United States": "Yes",
+            "Will you now, or in the future, require sponsorship": "No",
+            "Have you ever worked for a Sony company previously": "No",
+        }
+        for question_fragment, answer in greenhouse_answers.items():
+            try:
+                # Find the question label, then find its associated select or radio
+                matched = page.evaluate(f"""() => {{
+                    const labels = [...document.querySelectorAll('label, legend, div, span')];
+                    const lbl = labels.find(l => l.innerText && l.innerText.includes({json.dumps(question_fragment)}));
+                    if (!lbl) return false;
+                    // Try to find the nearest select
+                    const parent = lbl.closest('div.field, fieldset, div') || lbl.parentElement;
+                    if (!parent) return false;
+                    const sel = parent.querySelector('select');
+                    if (sel) {{
+                        const opts = [...sel.options];
+                        const opt = opts.find(o => o.text.trim().toLowerCase().startsWith({json.dumps(answer.lower())}));
+                        if (opt) {{ sel.value = opt.value; sel.dispatchEvent(new Event('change', {{bubbles:true}})); return true; }}
+                    }}
+                    // Try radio buttons
+                    const radios = [...(parent.querySelectorAll('input[type=radio]') || [])];
+                    const radio = radios.find(r => {{
+                        const rl = document.querySelector('label[for="'+r.id+'"]');
+                        return rl && rl.innerText.trim().toLowerCase().startsWith({json.dumps(answer.lower())});
+                    }});
+                    if (radio) {{ radio.click(); return true; }}
+                    return false;
+                }}""")
+                if matched:
+                    filled_summary.append({"field": question_fragment[:40], "value": answer})
+                    print(f"  Answered: '{question_fragment[:40]}...' → {answer}")
+            except Exception as e:
+                print(f"  Warning: Greenhouse answer failed for '{question_fragment[:40]}': {e}")
+
+        # ── Fill "How did you hear" ───────────────────────────────────────────
+        try:
+            el = page.query_selector("#question_15583143004")
+            if el:
+                el.fill("LinkedIn")
+                filled_summary.append({"field": "How did you hear", "value": "LinkedIn"})
+        except Exception:
+            pass
 
         print(f"\n  Filled {len(filled_summary)} field(s).")
         print("\n  ⏸  Form is filled but NOT submitted.")
@@ -818,9 +899,10 @@ def present_summary(job_info: dict, docs: dict, fill_result: dict, selected: dic
     print(f"  Cover Letter: {docs['cover_letter_path']}")
     print(f"\n  Fields filled  : {len(fill_result.get('filled_fields', []))}")
 
-    flagged = fill_result.get("flagged", []) + [
-        {"name": f} for f in selected.get("flagged_fields", [])
-    ]
+    flagged = [
+        f for f in fill_result.get("flagged", [])
+        if f.get("name") or f.get("id")
+    ] + [{"name": f} for f in selected.get("flagged_fields", [])]
     if flagged:
         print(f"\n  ⚠️  Items requiring your review:")
         for f in flagged:
@@ -892,7 +974,8 @@ def main():
         return
 
     # ── STEP 4 ────────────────────────────────────────────────────────────────
-    fields = inspect_application_form(args.url, headless=args.headless)
+    apply_url = job_info.get("apply_url", args.url)
+    fields = inspect_application_form(apply_url, headless=args.headless)
     log_action("inspected_form",
                job_info.get("job_title",""), job_info.get("company",""), "success",
                f"{len(fields)} fields found")
@@ -907,7 +990,7 @@ def main():
 
     # ── STEP 5 ────────────────────────────────────────────────────────────────
     fill_result = fill_application_form(
-        args.url, job_info, docs, components, fields, headless=False
+        apply_url, job_info, docs, components, fields, headless=False
     )
     log_action("filled_form",
                job_info.get("job_title",""), job_info.get("company",""), "success",

@@ -1,5 +1,9 @@
 """
 ingest_textbook_styled.py — Style-aware PDF chunker and ChromaDB ingester
+Primary target: data/textbooks/LinearAlgebra.pdf (Ron Larson, Elementary Linear Algebra)
+
+Body font: 10pt. Chapter headings: 14pt BOLD. Section headings: 11.5pt+ BOLD/ITALIC.
+Default args are pre-set for LinearAlgebra — run with no flags to ingest it directly.
 
 Differences from ingest_textbook.py:
   - Uses PyMuPDF (fitz) instead of pypdf for text extraction
@@ -8,17 +12,20 @@ Differences from ingest_textbook.py:
   - Adds heading_level and is_heading metadata fields to every chunk
   - Everything else — chunking, overlap, embedding, ChromaDB, logging — is identical
 
-Use this script for textbooks that use visual styling (bold, italic, large font)
-to mark section headings rather than consistent keyword patterns.
-
 Usage:
-    python ingest_textbook_styled.py --pdf data/textbooks/CyberSecurity.pdf --collection cybersecurity
-    python ingest_textbook_styled.py --pdf data/textbooks/CyberSecurity.pdf --collection cybersecurity --title "CompTIA Security+ Guide" --author "Mike Chapple"
+    # Ingest LinearAlgebra with defaults:
+    python ingest_textbook_styled.py
+
+    # Override any defaults:
+    python ingest_textbook_styled.py --pdf data/textbooks/LinearAlgebra.pdf --collection linear_algebra
+
+    # Scan fonts before ingesting a new textbook:
+    python ingest_textbook_styled.py --scan --pdf data/textbooks/LinearAlgebra.pdf
+
     python ingest_textbook_styled.py --list
-    python ingest_textbook_styled.py --scan --pdf data/textbooks/CyberSecurity.pdf
 
 The --scan flag runs a font analysis pass and prints the detected font sizes
-without ingesting anything. Use this first to verify heading detection is correct.
+without ingesting anything. Use this first when switching to a different textbook.
 """
 
 import argparse
@@ -336,7 +343,9 @@ def chunk_text(text: str, start_page: int) -> list[dict]:
 
     try:
         KEYWORD_RE = re.compile(
-            r"^(Definition|Example\s+\d+[\.\d]*|Theorem\s+\d+[\.\d]*|Lemma\s+\d+[\.\d]*|Proof\.?|Remark\.?|Corollary\s+\d+[\.\d]*)",
+            r"^(Definition|Example\s+\d+[\.\d]*|Theorem\s+\d+[\.\d]*|Lemma\s+\d+[\.\d]*|"
+            r"Proof\.?|Remark\.?|Corollary\s+\d+[\.\d]*|Exercise\s+\d+[\.\d]*|"
+            r"Application|Summary|Properties of|Exercises)",
             re.MULTILINE
         )
         boundaries = [0]
@@ -680,14 +689,22 @@ def list_collections():
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    DEFAULT_PDF        = "data/textbooks/LinearAlgebra.pdf"
+    DEFAULT_COLLECTION = "linear_algebra"
+    DEFAULT_TITLE      = "Elementary Linear Algebra"
+    DEFAULT_AUTHOR     = "Ron Larson"
+    DEFAULT_START_PAGE = 11   # pages 1-10 are front matter / TOC / index
+
     parser = argparse.ArgumentParser(
-        description="Style-aware PDF ingester using PyMuPDF font detection"
+        description="Style-aware PDF ingester using PyMuPDF font detection",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--pdf",        help="Path to PDF file")
-    parser.add_argument("--collection", help="ChromaDB collection name")
-    parser.add_argument("--title",      default="", help="Book title (optional)")
-    parser.add_argument("--author",     default="", help="Author (optional)")
-    parser.add_argument("--start-page", type=int, default=1, help="First page to ingest (1-indexed). Skip front matter, TOC, etc.")
+    parser.add_argument("--pdf",        default=DEFAULT_PDF,        help="Path to PDF file")
+    parser.add_argument("--collection", default=DEFAULT_COLLECTION, help="ChromaDB collection name")
+    parser.add_argument("--title",      default=DEFAULT_TITLE,      help="Book title")
+    parser.add_argument("--author",     default=DEFAULT_AUTHOR,     help="Author")
+    parser.add_argument("--start-page", type=int, default=DEFAULT_START_PAGE,
+                        help="First page to ingest (1-indexed). Skips front matter / TOC.")
     parser.add_argument("--list",       action="store_true", help="List all collections and exit")
     parser.add_argument("--scan",       action="store_true",
                         help="Scan font sizes and print heading detection report — no ingest")
@@ -698,19 +715,12 @@ if __name__ == "__main__":
     if args.list:
         list_collections()
     elif args.scan:
-        if not args.pdf:
-            log.error("--scan requires --pdf")
-            sys.exit(1)
         if not os.path.exists(args.pdf):
             log.error(f"File not found: {args.pdf}")
             sys.exit(1)
         scan_fonts(args.pdf, start_page=args.start_page - 1)
-    elif args.pdf and args.collection:
+    else:
         if not os.path.exists(args.pdf):
             log.error(f"File not found: {args.pdf}")
             sys.exit(1)
         ingest(args.pdf, args.collection, args.title, args.author, start_page=args.start_page - 1)
-    else:
-        log.error("Missing arguments. Use --pdf + --collection, --scan + --pdf, or --list.")
-        parser.print_help()
-        sys.exit(1)
