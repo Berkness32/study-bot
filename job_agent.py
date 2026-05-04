@@ -22,15 +22,16 @@ from pathlib import Path
 import ollama
 import yaml
 from docx import Document
+from docx.shared import Pt, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
-from docx.shared import Pt, RGBColor, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 from playwright.sync_api import sync_playwright
 
 # ── Config ────────────────────────────────────────────────────────────────────
-COMPONENTS_PATH     = Path("data/job_apps/components.yaml")
-OUTPUT_DIR          = Path("data/job_apps/output")
+COMPONENTS_PATH     = Path("data/job-apps/components.yaml")
+OUTPUT_DIR          = Path("data/job-apps/output")
 ACTIONS_LOG         = Path("logs/actions_log.json")
 CHAT_MODEL          = "qwen3:8b"
 
@@ -38,6 +39,39 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 ACTIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
+
+def _strip_llm_raw(text: str) -> str:
+    text = re.sub(r'<think>[\s\S]*?</think>', '', text, flags=re.IGNORECASE).strip()
+    text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^```\s*',     '', text, flags=re.MULTILINE)
+    text = re.sub(r'\s*```$',     '', text)
+    return text.strip()
+
+
+def _add_hyperlink(para, url: str, text: str, size_pt: float = 11):
+    """Append a blue underlined hyperlink run to an existing paragraph."""
+    part = para.part
+    r_id = part.relate_to(url, RT.HYPERLINK, is_external=True)
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), r_id)
+    run = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')
+    color = OxmlElement('w:color')
+    color.set(qn('w:val'), '0563C1')
+    rPr.append(color)
+    u = OxmlElement('w:u')
+    u.set(qn('w:val'), 'single')
+    rPr.append(u)
+    sz = OxmlElement('w:sz')
+    sz.set(qn('w:val'), str(int(size_pt * 2)))
+    rPr.append(sz)
+    run.append(rPr)
+    t = OxmlElement('w:t')
+    t.text = text
+    run.append(t)
+    hyperlink.append(run)
+    para._p.append(hyperlink)
+
 
 def log_action(action: str, job_title: str, company: str,
                outcome: str, notes: str = ""):
@@ -97,7 +131,7 @@ def load_components() -> dict:
 
 # ── Step 1: Read job description ──────────────────────────────────────────────
 
-def read_job_description(url: str, headless: bool = True) -> dict:
+def read_job_description(url: str, headless: bool = False) -> dict:
     print(f"\n{'='*60}")
     print("STEP 1 — Reading job description")
     print(f"  URL: {url}")
@@ -128,10 +162,7 @@ Return only valid JSON, no markdown, no explanation."""
         messages=[{"role": "user", "content": prompt}],
         options={"temperature": 0},
     )
-    raw = response["message"]["content"].strip()
-    raw = re.sub(r'^```json\s*', '', raw, flags=re.MULTILINE)
-    raw = re.sub(r'^```\s*', '',  raw, flags=re.MULTILINE)
-    raw = re.sub(r'\s*```$', '',  raw)
+    raw = _strip_llm_raw(response["message"]["content"])
 
     try:
         job_info = json.loads(raw)
@@ -227,10 +258,7 @@ Return only valid JSON, no markdown."""
         messages=[{"role": "user", "content": prompt}],
         options={"temperature": 0},
     )
-    raw = response["message"]["content"].strip()
-    raw = re.sub(r'^```json\s*', '', raw, flags=re.MULTILINE)
-    raw = re.sub(r'^```\s*',     '', raw, flags=re.MULTILINE)
-    raw = re.sub(r'\s*```$',     '', raw)
+    raw = _strip_llm_raw(response["message"]["content"])
 
     try:
         selected = json.loads(raw)
@@ -301,96 +329,30 @@ Return only valid JSON, no markdown."""
 
 # ── Step 3: Generate documents ────────────────────────────────────────────────
 
-def _add_horizontal_rule(doc):
-    """Add a thin horizontal line paragraph."""
+def _add_section_header(doc, text: str):
     p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_before = Pt(12)
     p.paragraph_format.space_after  = Pt(2)
-    pPr = p._p.get_or_add_pPr()
-    pBdr = OxmlElement('w:pBdr')
-    bottom = OxmlElement('w:bottom')
-    bottom.set(qn('w:val'), 'single')
-    bottom.set(qn('w:sz'), '6')
-    bottom.set(qn('w:space'), '1')
-    bottom.set(qn('w:color'), '999999')
-    pBdr.append(bottom)
-    pPr.append(pBdr)
-
-
-def _add_bold_line(doc, text: str, size: int = 11):
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after  = Pt(0)
     run = p.add_run(text)
     run.bold = True
-    run.font.size = Pt(size)
+    run.underline = True
+    run.font.size = Pt(12)
 
 
-def _add_normal_line(doc, text: str, size: int = 10, indent: bool = False):
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after  = Pt(0)
-    if indent:
-        p.paragraph_format.left_indent = Inches(0.25)
-    run = p.add_run(text)
-    run.font.size = Pt(size)
-
-
-def _add_bullet(doc, text: str, size: int = 10):
-    p = doc.add_paragraph(style="List Bullet")
+def _add_bullet(doc, text: str):
+    p = doc.add_paragraph(style='List Bullet')
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after  = Pt(1)
-    p.paragraph_format.left_indent  = Inches(0.25)
-    run = p.add_run(text)
-    run.font.size = Pt(size)
-
-
-def _add_section_header(doc, text: str):
-    """Bold all-caps section header with underline rule."""
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(8)
-    p.paragraph_format.space_after  = Pt(2)
-    run = p.add_run(text.upper())
-    run.bold = True
-    run.font.size = Pt(11)
-    # Underline the header paragraph
-    pPr = p._p.get_or_add_pPr()
-    pBdr = OxmlElement('w:pBdr')
-    bottom = OxmlElement('w:bottom')
-    bottom.set(qn('w:val'), 'single')
-    bottom.set(qn('w:sz'), '4')
-    bottom.set(qn('w:space'), '1')
-    bottom.set(qn('w:color'), '000000')
-    pBdr.append(bottom)
-    pPr.append(pBdr)
-
-
-def _add_job_header(doc, title: str, company: str, dates: str):
-    """Two-line job header: bold title on left, then company | dates."""
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(6)
-    p.paragraph_format.space_after  = Pt(0)
-    run = p.add_run(title)
-    run.bold = True
-    run.font.size = Pt(10)
-
-    p2 = doc.add_paragraph()
-    p2.paragraph_format.space_before = Pt(0)
-    p2.paragraph_format.space_after  = Pt(2)
-    run2 = p2.add_run(f"{company}  |  {dates}")
-    run2.font.size = Pt(10)
-    run2.italic = True
+    p.add_run(text).font.size = Pt(11)
 
 
 def build_resume_docx(job_info: dict, selected: dict,
                       components: dict, output_path: Path):
-    """Build a properly formatted resume .docx matching original style."""
     doc = Document()
 
-    # Narrow margins
     for section in doc.sections:
-        section.top_margin    = Inches(0.6)
-        section.bottom_margin = Inches(0.6)
+        section.top_margin    = Inches(0.75)
+        section.bottom_margin = Inches(0.75)
         section.left_margin   = Inches(0.75)
         section.right_margin  = Inches(0.75)
 
@@ -399,129 +361,240 @@ def build_resume_docx(job_info: dict, selected: dict,
     # ── Header ────────────────────────────────────────────────────────────────
     name_p = doc.add_paragraph()
     name_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    name_p.paragraph_format.space_after = Pt(2)
+    name_p.paragraph_format.space_before = Pt(0)
+    name_p.paragraph_format.space_after  = Pt(2)
     run = name_p.add_run(p_info["name"])
     run.bold = True
-    run.font.size = Pt(14)
+    run.font.size = Pt(16)
 
     contact_p = doc.add_paragraph()
     contact_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    contact_p.paragraph_format.space_after = Pt(1)
+    contact_p.paragraph_format.space_before = Pt(0)
+    contact_p.paragraph_format.space_after  = Pt(1)
     contact_p.add_run(
         f"{p_info['location']} | {p_info['phone']} | {p_info['email']}"
     ).font.size = Pt(10)
 
     links_p = doc.add_paragraph()
     links_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    links_p.paragraph_format.space_after = Pt(4)
-    links_p.add_run(
-        f"{p_info['portfolio']} | {p_info['linkedin']}"
-    ).font.size = Pt(10)
+    links_p.paragraph_format.space_before = Pt(0)
+    links_p.paragraph_format.space_after  = Pt(10)
+    _add_hyperlink(links_p, p_info["portfolio"], p_info["portfolio"], size_pt=10)
+    links_p.add_run(" | ").font.size = Pt(10)
+    _add_hyperlink(links_p, p_info["linkedin"],  p_info["linkedin"],  size_pt=10)
 
-    # ── Skills ────────────────────────────────────────────────────────────────
-    _add_section_header(doc, "Skills & Qualifications")
+    # ── Skills & Qualifications ───────────────────────────────────────────────
+    _add_section_header(doc, "Skills & Qualifications:")
     skills = components.get("skills", {})
     label_map = {
-        "coding_languages":       "Coding Languages",
-        "software_utilities":     "Software & Utilities",
-        "backend":                "Backend",
-        "networking":             "Networking",
-        "soft_skills":            "Soft Skills",
-        "math_courses":           "Math Courses",
-        "program_event_operations": "Program & Event Operations",
-        "administrative_facility":  "Administrative & Facility Management",
-        "health_safety":            "Health, Safety & Compliance",
-        "technology_data":          "Technology & Data Tracking",
-        "interpersonal_leadership": "Interpersonal & Leadership Skills",
+        "coding_languages":            "Coding Languages",
+        "software_engineer_utilities": "Software & Utilities",
+        "software_utilities":          "Software & Utilities",
+        "backend":                     "Backend",
+        "networking":                  "Networking",
+        "soft_skills":                 "Soft Skills",
+        "math_courses":                "Math Courses",
+        "program_event_operations":    "Program & Event Operations",
+        "administrative_facility":     "Administrative & Facility Management",
+        "health_safety":               "Health, Safety & Compliance",
+        "technology_data":             "Technology & Data Tracking",
+        "interpersonal_leadership":    "Interpersonal & Leadership Skills",
     }
     for key in selected.get("selected_skills", []):
         if key in skills:
             label = label_map.get(key, key.replace("_", " ").title())
             p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(1)
+            p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after  = Pt(1)
-            bold_run = p.add_run(f"{label}: ")
+            bold_run = p.add_run(label)
             bold_run.bold = True
-            bold_run.font.size = Pt(10)
-            p.add_run(skills[key]["value"]).font.size = Pt(10)
-
-
-    # ── Projects ──────────────────────────────────────────────────────────────
-    _add_section_header(doc, "Projects")
-    proj_lookup = {p["title"]: p for p in components.get("projects", [])}
-    for proj_title in selected.get("selected_projects", []):
-        if proj_title in proj_lookup:
-            proj = proj_lookup[proj_title]
-            _add_job_header(doc, proj["role"], proj["title"], proj["dates"])
-            for b in proj.get("bullets", []):
-                _add_bullet(doc, b["text"])
-            # Always add GitHub link as last bullet if present
-            links = proj.get("links", {})
-            if links.get("github"):
-                _add_bullet(doc, f"GitHub: {links['github']}")
+            bold_run.font.size = Pt(11)
+            p.add_run(f": {skills[key]['value']}").font.size = Pt(11)
 
     # ── Certifications ────────────────────────────────────────────────────────
-    _add_section_header(doc, "Certifications")
+    _add_section_header(doc, "Certifications:")
     for cert in components.get("certifications", []):
-        status = cert.get("expires", cert.get("status", ""))
         p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(1)
+        p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.space_after  = Pt(1)
         bold_run = p.add_run(cert["name"])
         bold_run.bold = True
-        bold_run.font.size = Pt(10)
-        p.add_run(f". {status}").font.size = Pt(10)
+        bold_run.font.size = Pt(11)
+        if cert.get("expires"):
+            detail = f". Issued by: {cert['issuer']}. Expires: {cert['expires']}."
+        else:
+            detail = f" ({cert.get('status', 'In Progress')}). Expected: {cert.get('expected', '')}."
+        p.add_run(detail).font.size = Pt(11)
 
-    # ── Education ─────────────────────────────────────────────────────────────
-    _add_section_header(doc, "Education")
-    for edu in components.get("education", []):
+    # ── Projects ──────────────────────────────────────────────────────────────
+    _add_section_header(doc, "Projects:")
+    proj_lookup = {proj["title"]: proj for proj in components.get("projects", [])}
+    for proj_title in selected.get("selected_projects", []):
+        if proj_title not in proj_lookup:
+            continue
+        proj = proj_lookup[proj_title]
         p = doc.add_paragraph()
         p.paragraph_format.space_before = Pt(4)
         p.paragraph_format.space_after  = Pt(1)
-        bold_run = p.add_run(edu["institution"])
+        bold_run = p.add_run(proj["role"])
         bold_run.bold = True
-        bold_run.font.size = Pt(10)
+        bold_run.font.size = Pt(11)
+        p.add_run(f". {proj['title']}. {proj['dates']}.").font.size = Pt(11)
+        for b in proj.get("bullets", []):
+            _add_bullet(doc, b["text"])
+        for link_url in (proj.get("links") or {}).values():
+            lp = doc.add_paragraph()
+            lp.paragraph_format.left_indent  = Inches(0.25)
+            lp.paragraph_format.space_before = Pt(0)
+            lp.paragraph_format.space_after  = Pt(1)
+            _add_hyperlink(lp, link_url, link_url, size_pt=10)
 
+    # ── Education ─────────────────────────────────────────────────────────────
+    _add_section_header(doc, "Education:")
+    for edu in components.get("education", []):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(4)
+        p.paragraph_format.space_after  = Pt(0)
+        run = p.add_run(edu["institution"])
+        run.bold = True
+        run.font.size = Pt(11)
         p2 = doc.add_paragraph()
         p2.paragraph_format.space_before = Pt(0)
-        p2.paragraph_format.space_after  = Pt(2)
-        run2 = p2.add_run(f"{edu['degree']}  |  {edu['dates']}")
-        run2.font.size = Pt(10)
-        run2.italic = True
-
-        # Always list key courses for CS degree
+        p2.paragraph_format.space_after  = Pt(0)
+        r2 = p2.add_run(edu["dates"])
+        r2.italic = True
+        r2.font.size = Pt(11)
+        p3 = doc.add_paragraph()
+        p3.paragraph_format.space_before = Pt(0)
+        p3.paragraph_format.space_after  = Pt(1)
+        r3 = p3.add_run(edu["degree"])
+        r3.italic = True
+        r3.font.size = Pt(11)
         if edu.get("courses"):
-            kc = doc.add_paragraph()
-            kc.paragraph_format.space_before = Pt(2)
-            kc.paragraph_format.space_after  = Pt(1)
-            kc_run = kc.add_run("Key Courses:")
-            kc_run.bold = True
-            kc_run.font.size = Pt(10)
-            for course_line in edu["courses"]:
-                _add_bullet(doc, course_line)
+            kcp = doc.add_paragraph()
+            kcp.paragraph_format.space_before = Pt(0)
+            kcp.paragraph_format.space_after  = Pt(1)
+            kcp.add_run("Key Courses:").font.size = Pt(11)
+            for course in edu["courses"]:
+                if " - http" in course:
+                    name, url = course.split(" - ", 1)
+                    bp = doc.add_paragraph(style='List Bullet')
+                    bp.paragraph_format.space_before = Pt(0)
+                    bp.paragraph_format.space_after  = Pt(1)
+                    bp.add_run(name + " — ").font.size = Pt(11)
+                    _add_hyperlink(bp, url, url, size_pt=11)
+                else:
+                    _add_bullet(doc, course)
 
-    # ── Experience ────────────────────────────────────────────────────────────
-    _add_section_header(doc, "Experience")
-    exp_lookup = {e["company"]: e for e in components.get("experience", [])}
+    # ── Experience — split into Related and Additional ─────────────────────────
+    RELATED_TAGS = {"it", "tech", "software_engineer", "networking"}
+    exp_lookup   = {e["company"]: e for e in components.get("experience", [])}
 
-    # Sort: primary roles first (Burton Chase, Buchanan), then others
-    priority = ["Buchanan Street Elementary School", "Burton Chase Park"]
-    selected_exp = selected.get("selected_experience", [])
-    primary   = [e for e in selected_exp if e["company"] in priority]
-    secondary = [e for e in selected_exp if e["company"] not in priority]
+    def _is_related(company: str) -> bool:
+        for b in exp_lookup.get(company, {}).get("bullets", []):
+            if set(b.get("tags", [])) & RELATED_TAGS:
+                return True
+        return False
 
-    for sel_exp in primary + secondary:
-        company = sel_exp.get("company", "")
-        _add_job_header(doc, sel_exp["title"], company, sel_exp["dates"])
+    def _write_exp_block(sel_exp: dict):
+        p1 = doc.add_paragraph()
+        p1.paragraph_format.space_before = Pt(4)
+        p1.paragraph_format.space_after  = Pt(0)
+        r1 = p1.add_run(sel_exp["title"])
+        r1.bold = True
+        r1.font.size = Pt(11)
+        p2 = doc.add_paragraph()
+        p2.paragraph_format.space_before = Pt(0)
+        p2.paragraph_format.space_after  = Pt(0)
+        r2 = p2.add_run(sel_exp["company"])
+        r2.bold = True
+        r2.font.size = Pt(11)
+        p3 = doc.add_paragraph()
+        p3.paragraph_format.space_before = Pt(0)
+        p3.paragraph_format.space_after  = Pt(1)
+        p3.add_run(sel_exp["dates"]).font.size = Pt(11)
         for bullet in sel_exp.get("selected_bullets", []):
             _add_bullet(doc, bullet)
+
+    selected_exp   = selected.get("selected_experience", [])
+    related_exp    = [e for e in selected_exp if _is_related(e["company"])]
+    additional_exp = [e for e in selected_exp if not _is_related(e["company"])]
+
+    if related_exp:
+        _add_section_header(doc, "Related Experience")
+        for sel_exp in related_exp:
+            _write_exp_block(sel_exp)
+
+    if additional_exp:
+        _add_section_header(doc, "Additional Experience:")
+        for sel_exp in additional_exp:
+            _write_exp_block(sel_exp)
 
     doc.save(str(output_path))
 
 
+def generate_cover_letter_text(job_info: dict, selected: dict, components: dict) -> list[str]:
+    """Use LLM to write 3 tailored body paragraphs for the cover letter."""
+    skills_lines = [
+        f"{k.replace('_', ' ').title()}: {components['skills'][k]['value'][:80]}"
+        for k in selected.get("selected_skills", [])
+        if k in components.get("skills", {})
+    ]
+    exp_summary = "\n".join(
+        f"- {e['title']} at {e['company']}: " + "; ".join(e.get("selected_bullets", [])[:2])
+        for e in selected.get("selected_experience", [])[:4]
+    )
+    proj_summary = "\n".join(
+        f"- {p['title']} ({p['role']}): " + (p["bullets"][0]["text"] if p.get("bullets") else "")
+        for p in components.get("projects", [])
+    )
+    edu = components.get("education", [{}])[0]
+
+    prompt = f"""Write 3 professional cover letter body paragraphs for this job application.
+
+JOB: {job_info.get('job_title')} at {job_info.get('company')}
+Requirements: {job_info.get('requirements', '')[:600]}
+Responsibilities: {job_info.get('responsibilities', '')[:600]}
+
+CANDIDATE:
+Education: {edu.get('degree')} from {edu.get('institution')}, graduated December 2024
+Skills: {chr(10).join(skills_lines[:6])}
+Work Experience:
+{exp_summary}
+Personal Projects:
+{proj_summary}
+
+Write exactly 3 paragraphs (no headings, no labels, no numbering):
+1. (4-6 sentences) Connect CS education and foundational technical skills to this specific role. Reference relevant coursework, the degree, and how it prepared the candidate.
+2. (4-6 sentences) Highlight specific technical projects and work experience that directly match this job's requirements. Name actual projects and technologies used.
+3. (4-6 sentences) Express genuine enthusiasm for {job_info.get('company')} specifically. Mention the company's focus area. Close with eagerness to contribute, grow, and work with the team.
+
+Tone: professional, confident, specific. Name the company and role. No filler phrases.
+Return a JSON array of exactly 3 strings. Return only valid JSON, no markdown."""
+
+    response = ollama.chat(
+        model=CHAT_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        options={"temperature": 0.1},
+    )
+    raw = _strip_llm_raw(response["message"]["content"])
+
+    try:
+        paragraphs = json.loads(raw)
+        if isinstance(paragraphs, list) and len(paragraphs) >= 3:
+            return [str(p).strip() for p in paragraphs[:3]]
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Fallback to component templates
+    paras = components.get("cover_letter_paragraphs", {})
+    keys  = [k for k in selected.get("selected_cover_paragraphs", []) if k != "closing"]
+    return [paras[k]["text"].strip() for k in keys if k in paras]
+
+
 def build_cover_letter_docx(job_info: dict, selected: dict,
-                            components: dict, output_path: Path):
-    """Build a formatted cover letter .docx."""
+                            components: dict, output_path: Path,
+                            paragraphs: list[str]):
     doc = Document()
 
     for section in doc.sections:
@@ -531,49 +604,30 @@ def build_cover_letter_docx(job_info: dict, selected: dict,
         section.right_margin  = Inches(1.0)
 
     p_info  = components["personal"]
-    paras   = components.get("cover_letter_paragraphs", {})
     title   = job_info.get("job_title", "this position")
     company = job_info.get("company", "your organization")
 
-    # Date
-    date_p = doc.add_paragraph(datetime.now().strftime("%B %d, %Y"))
-    date_p.paragraph_format.space_after = Pt(12)
-    date_p.runs[0].font.size = Pt(11)
+    def _p(text: str, space_after: float = 12):
+        para = doc.add_paragraph(text)
+        para.paragraph_format.space_before = Pt(0)
+        para.paragraph_format.space_after  = Pt(space_after)
+        if para.runs:
+            para.runs[0].font.size = Pt(11)
+        return para
 
-    # Salutation
-    sal = doc.add_paragraph("Dear Hiring Manager,")
-    sal.paragraph_format.space_after = Pt(8)
-    sal.runs[0].font.size = Pt(11)
+    _p(datetime.now().strftime("%B %d, %Y"))
+    _p("Dear Hiring Manager:")
+    _p(f"I am writing to express my strong interest in the {title} position at {company}.")
 
-    # Opening line
-    opener = doc.add_paragraph(
-        f"I am writing to express my strong interest in the {title} position at {company}."
+    for body_para in paragraphs:
+        _p(body_para)
+
+    _p(
+        f"If you have any questions, you can reach me at {p_info['phone']} or by email at "
+        f"{p_info['email']}. I look forward to an opportunity to discuss this position further."
     )
-    opener.paragraph_format.space_after = Pt(8)
-    opener.runs[0].font.size = Pt(11)
-
-    # Body paragraphs
-    para_keys = [k for k in selected.get("selected_cover_paragraphs", [])
-                 if k != "closing"]
-    for key in para_keys:
-        if key in paras:
-            p = doc.add_paragraph(paras[key]["text"].strip())
-            p.paragraph_format.space_after = Pt(8)
-            if p.runs:
-                p.runs[0].font.size = Pt(11)
-
-    # Closing
-    if "closing" in paras:
-        closing_text = paras["closing"]["text"].strip()
-    else:
-        closing_text = (
-            f"If you have any questions, you can reach me at {p_info['phone']} "
-            f"or by email at {p_info['email']}. I look forward to discussing this "
-            f"opportunity further.\n\nSincerely,\n{p_info['name']}"
-        )
-    close_p = doc.add_paragraph(closing_text)
-    if close_p.runs:
-        close_p.runs[0].font.size = Pt(11)
+    _p("Sincerely,", space_after=4)
+    _p(p_info["name"], space_after=0)
 
     doc.save(str(output_path))
 
@@ -591,7 +645,10 @@ def generate_documents(job_info: dict, selected: dict, components: dict) -> dict
     cover_path  = OUTPUT_DIR / f"cover_letter_{company_clean}_{date_str}.docx"
 
     build_resume_docx(job_info, selected, components, resume_path)
-    build_cover_letter_docx(job_info, selected, components, cover_path)
+
+    print("  Generating cover letter content...")
+    cover_paragraphs = generate_cover_letter_text(job_info, selected, components)
+    build_cover_letter_docx(job_info, selected, components, cover_path, cover_paragraphs)
 
     print(f"\n  Resume saved       : {resume_path}")
     print(f"  Cover letter saved : {cover_path}")
@@ -609,7 +666,7 @@ def generate_documents(job_info: dict, selected: dict, components: dict) -> dict
 
 # ── Step 4: Inspect form ──────────────────────────────────────────────────────
 
-def inspect_application_form(url: str, headless: bool = True) -> list[dict]:
+def inspect_application_form(url: str, headless: bool = False) -> list[dict]:
     print(f"\n{'='*60}")
     print("STEP 4 — Inspecting application form")
     print(f"{'='*60}")
@@ -700,10 +757,7 @@ Return only valid JSON array, no markdown."""
         messages=[{"role": "user", "content": prompt}],
         options={"temperature": 0},
     )
-    raw = response["message"]["content"].strip()
-    raw = re.sub(r'^```json\s*', '', raw, flags=re.MULTILINE)
-    raw = re.sub(r'^```\s*',     '', raw, flags=re.MULTILINE)
-    raw = re.sub(r'\s*```$',     '', raw)
+    raw = _strip_llm_raw(response["message"]["content"])
 
     try:
         fill_plan = json.loads(raw)
@@ -790,7 +844,7 @@ def main():
     components = load_components()
 
     # ── STEP 1 ────────────────────────────────────────────────────────────────
-    job_info = read_job_description(args.url, headless=True)
+    job_info = read_job_description(args.url, headless=args.headless)
     log_action("read_job_description",
                job_info.get("job_title",""), job_info.get("company",""), "success")
 
@@ -838,7 +892,7 @@ def main():
         return
 
     # ── STEP 4 ────────────────────────────────────────────────────────────────
-    fields = inspect_application_form(args.url, headless=True)
+    fields = inspect_application_form(args.url, headless=args.headless)
     log_action("inspected_form",
                job_info.get("job_title",""), job_info.get("company",""), "success",
                f"{len(fields)} fields found")
