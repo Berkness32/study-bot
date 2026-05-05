@@ -7,40 +7,8 @@ from playwright.sync_api import Page
 
 
 def login(page: Page, credentials: dict) -> None:
-    """
-    Log in to Indeed. Indeed frequently uses email-only first, then password,
-    and may require OTP verification sent to email.
-    """
-    print("  🔐 Logging in to Indeed...")
-    page.goto("https://secure.indeed.com/auth", wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(2000)
-
-    # Step 1: Enter email
-    try:
-        page.fill('input[name="__email"], input[type="email"], #ifl-InputFormField-3', credentials["email"])
-        page.wait_for_timeout(500)
-        page.click('button[type="submit"]')
-        page.wait_for_timeout(2000)
-    except Exception as e:
-        print(f"  Warning: email field issue — {e}")
-
-    # Step 2: Password (may appear on next screen)
-    try:
-        pwd_field = page.query_selector('input[name="__password"], input[type="password"]')
-        if pwd_field:
-            pwd_field.fill(credentials["password"])
-            page.wait_for_timeout(500)
-            page.click('button[type="submit"]')
-            page.wait_for_timeout(3000)
-    except Exception as e:
-        print(f"  Warning: password field issue — {e}")
-
-    # Indeed almost always sends an OTP — pause for user
-    print("\n  ⏸  Indeed may have sent a verification code to your email or phone.")
-    print("  Complete any verification steps in the browser window, then return here.")
-    input("  Press ENTER when fully logged in: ")
-
-    print("  ✅ Login step complete.")
+    print("  ℹ️  Skipping Indeed sign-in — browsing listings without login.")
+    print("  Easy Apply jobs will be flagged; apply to those manually in your browser.")
 
 
 def browse_jobs(page: Page, query: str = "technology Los Angeles") -> None:

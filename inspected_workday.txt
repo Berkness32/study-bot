@@ -1,0 +1,493 @@
+(.venv) ➜  study-bot git:(main) ✗ python _inspect_workday.py
+
+======================================================================
+  BROWSER IS OPEN
+  1. Log in to your Boeing/Workday account in the browser window
+  2. Once you reach step 2 (My Information), come back here
+  3. Press ENTER to begin the automated page walk
+======================================================================
+
+  Press ENTER when ready >
+
+======================================================================
+  STEP 1: current step 1 of 7 My Information
+  URL: ...ate-Space-Communications-Systems-Engineer-Analyst_JR2026506515-2/apply
+======================================================================
+  [a     ][        ] 'accessibilitySkipToMainContent'                        | 'Skip to main content'
+  [div   ][        ] 'header'                                                | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [a     ][        ] 'logoLink'                                              | ''
+  [img   ][        ] 'logo'                                                  | ''
+  [div   ][        ] 'headerTitle'                                           | ''
+  [div   ][        ] 'navigationContainer'                                   | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [div   ][        ] 'utilityButtonBar'                                      | 'English Settings aaronberkness@gmail.com'
+  [div   ][        ] 'utilityButtonBarLanguageMenu'                          | 'English'
+  [button][        ] 'utilityMenuButton'                                     | 'English'
+  [div   ][        ] 'utility-button-bar-divider'                            | ''
+  [div   ][        ] 'utilityButtonBarSettingsMenu'                          | 'Settings'
+  [div   ][        ] 'utilityButtonAccountTasksMenu'                         | 'aaronberkness@gmail.com'
+  [button][        ] 'navigationItem-Search for Jobs'                        | 'Search for Jobs'
+  [button][        ] 'navigationItem-Candidate Home'                         | 'Candidate Home'
+  [button][        ] 'hammyMenuIcon'                                         | ''
+  [div   ][        ] 'applyFlowPage'                                         | 'Back to Job Posting Associate Space Communications Systems Engineer A
+  [button][button  ] 'backToJobPosting'                                      | 'Back to Job Posting'
+  [h2    ][        ] 'jobTitleHeading'                                       | 'Associate Space Communications Systems Engineer Analyst'
+  [ol    ][        ] 'progressBar'                                           | 'current step 1 of 7 My Information step 2 of 7 My Experience step 3 o
+  [li    ][        ] 'progressBarActiveStep'                                 | 'current step 1 of 7 My Information'
+  [li    ][        ] 'progressBarInactiveStep'                               | 'step 2 of 7 My Experience'
+  [div   ][        ] 'applyFlowMyInfoPage'                                   | 'How Did You Hear About Us?* 1 item selected, Boeing Career Site  Boei
+  [div   ][        ] 'formField-source'                                      | 'How Did You Hear About Us?* 1 item selected, Boeing Career Site  Boei
+  [div   ][        ] 'multiSelectContainer'                                  | '1 item selected, Boeing Career Site  Boeing Career Site'
+  [div   ][        ] 'multiselectInputContainer'                             | '1 item selected, Boeing Career Site  Boeing Career Site'
+  [div   ][        ] 'promptSelectionLabel'                                  | ''
+  [div   ][        ] 'promptAriaInstruction'                                 | '1 item selected, Boeing Career Site'
+  [ul    ][        ] 'selectedItemList'                                      | 'Boeing Career Site'
+  [li    ][        ] 'menuItem'                                              | 'Boeing Career Site'
+  [div   ][        ] 'selectedItem'                                          | 'Boeing Career Site'
+  [div   ][        ] 'DELETE_charm'                                          | ''
+  [p     ][        ] 'promptOption'                                          | 'Boeing Career Site'
+  [span  ][        ] 'promptIcon'                                            | ''
+  [div   ][        ] 'formField-candidateIsPreviousWorker'                   | 'Have you ever been employed by Boeing or its subsidiaries as either a
+  [div   ][        ] 'formField-country'                                     | 'Country* United States of America'
+  [div   ][        ] 'smartDivider'                                          | ''
+  [div   ][        ] 'formField-legalName--firstName'                        | 'First Name*'
+  [div   ][        ] 'formField-legalName--middleName'                       | 'Middle Name'
+  [div   ][        ] 'formField-legalName--lastName'                         | 'Last Name*'
+  [div   ][        ] 'formField-preferredCheck'                              | 'I have a preferred name'
+  [div   ][        ] 'formField-addressLine1'                                | 'Address Line 1*'
+  [div   ][        ] 'formField-city'                                        | 'City*'
+  [div   ][        ] 'formField-countryRegion'                               | 'State* California'
+  [div   ][        ] 'formField-postalCode'                                  | 'Postal Code*'
+  [div   ][        ] 'formField-phoneType'                                   | 'Phone Device Type* Mobile'
+  [div   ][        ] 'formField-countryPhoneCode'                            | 'Country Phone Code* 1 item selected, United States of America (+1)  U
+  [div   ][        ] 'formField-phoneNumber'                                 | 'Phone Number*'
+  [div   ][        ] 'formField-extension'                                   | 'Phone Extension'
+  [input ][checkbox] 'phone-sms-opt-in'                                      | ''
+  [a     ][        ] 'phone-terms-and-condition-link'                        | 'Terms and Conditions'
+  [div   ][        ] 'pageFooter'                                            | 'Save and Continue'
+  [button][        ] 'pageFooterNextButton'                                  | 'Save and Continue'
+  [div   ][        ] 'footerContainer'                                       | 'Follow Us Applicant Privacy Policy © 2026 Workday, Inc. All rights re
+  [span  ][        ] 'followUs'                                              | 'Follow Us'
+  [a     ][        ] 'socialIcon'                                            | ''
+  [a     ][        ] 'privacyLink'                                           | 'Applicant Privacy Policy'
+
+  Clicking 'save and continue' → step 2...
+
+======================================================================
+  STEP 2: current step 2 of 7 My Experience
+  URL: ...ate-Space-Communications-Systems-Engineer-Analyst_JR2026506515-2/apply
+======================================================================
+  [a     ][        ] 'accessibilitySkipToMainContent'                        | 'Skip to main content'
+  [div   ][        ] 'header'                                                | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [a     ][        ] 'logoLink'                                              | ''
+  [img   ][        ] 'logo'                                                  | ''
+  [div   ][        ] 'headerTitle'                                           | ''
+  [div   ][        ] 'navigationContainer'                                   | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [div   ][        ] 'utilityButtonBar'                                      | 'English Settings aaronberkness@gmail.com'
+  [div   ][        ] 'utilityButtonBarLanguageMenu'                          | 'English'
+  [button][        ] 'utilityMenuButton'                                     | 'English'
+  [div   ][        ] 'utility-button-bar-divider'                            | ''
+  [div   ][        ] 'utilityButtonBarSettingsMenu'                          | 'Settings'
+  [div   ][        ] 'utilityButtonAccountTasksMenu'                         | 'aaronberkness@gmail.com'
+  [button][        ] 'navigationItem-Search for Jobs'                        | 'Search for Jobs'
+  [button][        ] 'navigationItem-Candidate Home'                         | 'Candidate Home'
+  [button][        ] 'hammyMenuIcon'                                         | ''
+  [div   ][        ] 'applyFlowPage'                                         | 'Back to Job Posting Associate Space Communications Systems Engineer A
+  [button][button  ] 'backToJobPosting'                                      | 'Back to Job Posting'
+  [h2    ][        ] 'jobTitleHeading'                                       | 'Associate Space Communications Systems Engineer Analyst'
+  [ol    ][        ] 'progressBar'                                           | 'completed step 1 of 7 My Information current step 2 of 7 My Experienc
+  [li    ][        ] 'progressBarCompletedStep'                              | 'completed step 1 of 7 My Information'
+  [li    ][        ] 'progressBarActiveStep'                                 | 'current step 2 of 7 My Experience'
+  [li    ][        ] 'progressBarInactiveStep'                               | 'step 3 of 7 Application Questions 1 of 2'
+  [div   ][        ] 'applyFlowMyExpPage'                                    | 'Work Experience Work Experience 1 Delete Job Title* Company* Location
+  [div   ][        ] 'formField-jobTitle'                                    | 'Job Title*'
+  [div   ][        ] 'formField-companyName'                                 | 'Company*'
+  [div   ][        ] 'formField-location'                                    | 'Location'
+  [div   ][        ] 'formField-currentlyWorkHere'                           | 'I currently work here'
+  [div   ][        ] 'formField-startDate'                                   | 'From* current value is 6/2023 06 / 2023'
+  [div   ][        ] 'dateInputWrapper'                                      | '06 / 2023'
+  [div   ][        ] 'dateSectionMonth-display'                              | '06'
+  [input ][        ] 'dateSectionMonth-input'                                | ''
+  [div   ][        ] 'dateSectionYear-display'                               | '2023'
+  [input ][        ] 'dateSectionYear-input'                                 | ''
+  [div   ][        ] 'dateIcon'                                              | ''
+  [div   ][        ] 'formField-roleDescription'                             | 'Role Description'
+  [div   ][        ] 'formField-endDate'                                     | 'To* current value is 6/2023 06 / 2023'
+  [button][        ] 'add-button'                                            | 'Add Another'
+  [div   ][        ] 'smartDivider'                                          | ''
+  [div   ][        ] 'instructionalText'                                     | 'For applicants in Colorado or applicants for positions in Colorado, B
+  [div   ][        ] 'formField-school'                                      | 'School or University* 1 item selected, California State University-Mo
+  [div   ][        ] 'multiSelectContainer'                                  | '1 item selected, California State University-Monterey Bay  California
+  [div   ][        ] 'multiselectInputContainer'                             | '1 item selected, California State University-Monterey Bay  California
+  [div   ][        ] 'promptSelectionLabel'                                  | ''
+  [div   ][        ] 'promptAriaInstruction'                                 | '1 item selected, California State University-Monterey Bay'
+  [ul    ][        ] 'selectedItemList'                                      | 'California State University-Monterey Bay'
+  [li    ][        ] 'menuItem'                                              | 'California State University-Monterey Bay'
+  [div   ][        ] 'selectedItem'                                          | 'California State University-Monterey Bay'
+  [div   ][        ] 'DELETE_charm'                                          | ''
+  [p     ][        ] 'promptOption'                                          | 'California State University-Monterey Bay'
+  [span  ][        ] 'promptIcon'                                            | ''
+  [div   ][        ] 'formField-degree'                                      | "Degree* Partial Bachelor's"
+  [div   ][        ] 'formField-fieldOfStudy'                                | 'Field of Study 1 item selected, Computer Science  Computer Science'
+  [div   ][        ] 'formField-gradeAverage'                                | 'Overall Result (GPA)'
+  [div   ][        ] 'formField-firstYearAttended'                           | 'From current value is 2022 2022'
+  [div   ][        ] 'formField-lastYearAttended'                            | 'To (Actual or Expected) current value is 2024 2024'
+  [div   ][        ] 'instructional-spacer'                                  | ''
+  [div   ][        ] 'formField-skills'                                      | 'Type to Add Skills 10 items selected  C++ Programming Language  Java
+  [div   ][        ] 'formField-'                                            | 'Upload a file (5MB max)* Drop files here or Select files Aaron Berkne
+  [div   ][        ] 'attachments-FileUpload'                                | 'Drop files here or Select files Aaron Berkness Resume.pdf successfull
+  [div   ][        ] 'file-upload-drop-zone'                                 | 'Drop files here or Select files'
+  [button][button  ] 'select-files'                                          | 'Select files'
+  [div   ][        ] 'file-upload-item'                                      | 'Aaron Berkness Resume.pdf successfully uploaded Aaron Berkness Resume
+  [div   ][        ] 'ariaLive'                                              | 'Aaron Berkness Resume.pdf successfully uploaded'
+  [div   ][        ] 'ariaLiveMessage'                                       | 'Aaron Berkness Resume.pdf successfully uploaded'
+  [div   ][        ] 'file-upload-item-name'                                 | 'Aaron Berkness Resume.pdf'
+  [div   ][        ] 'file-upload-successful'                                | 'Successfully Uploaded!'
+  [button][button  ] 'delete-file'                                           | ''
+  [div   ][        ] 'pageFooter'                                            | 'Back Save and Continue'
+  [button][        ] 'pageFooterBackButton'                                  | 'Back'
+  [button][        ] 'pageFooterNextButton'                                  | 'Save and Continue'
+  [div   ][        ] 'footerContainer'                                       | 'Follow Us Applicant Privacy Policy © 2026 Workday, Inc. All rights re
+  [span  ][        ] 'followUs'                                              | 'Follow Us'
+  [a     ][        ] 'socialIcon'                                            | ''
+  [a     ][        ] 'privacyLink'                                           | 'Applicant Privacy Policy'
+
+  Clicking 'save and continue' → step 3...
+
+======================================================================
+  STEP 3: current step 3 of 7 Application Questions 1 of 2
+  URL: ...ate-Space-Communications-Systems-Engineer-Analyst_JR2026506515-2/apply
+======================================================================
+  [a     ][        ] 'accessibilitySkipToMainContent'                        | 'Skip to main content'
+  [div   ][        ] 'header'                                                | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [a     ][        ] 'logoLink'                                              | ''
+  [img   ][        ] 'logo'                                                  | ''
+  [div   ][        ] 'headerTitle'                                           | ''
+  [div   ][        ] 'navigationContainer'                                   | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [div   ][        ] 'utilityButtonBar'                                      | 'English Settings aaronberkness@gmail.com'
+  [div   ][        ] 'utilityButtonBarLanguageMenu'                          | 'English'
+  [button][        ] 'utilityMenuButton'                                     | 'English'
+  [div   ][        ] 'utility-button-bar-divider'                            | ''
+  [div   ][        ] 'utilityButtonBarSettingsMenu'                          | 'Settings'
+  [div   ][        ] 'utilityButtonAccountTasksMenu'                         | 'aaronberkness@gmail.com'
+  [button][        ] 'navigationItem-Search for Jobs'                        | 'Search for Jobs'
+  [button][        ] 'navigationItem-Candidate Home'                         | 'Candidate Home'
+  [button][        ] 'hammyMenuIcon'                                         | ''
+  [div   ][        ] 'applyFlowPage'                                         | 'Back to Job Posting Associate Space Communications Systems Engineer A
+  [button][button  ] 'backToJobPosting'                                      | 'Back to Job Posting'
+  [h2    ][        ] 'jobTitleHeading'                                       | 'Associate Space Communications Systems Engineer Analyst'
+  [ol    ][        ] 'progressBar'                                           | 'completed step 1 of 7 My Information completed step 2 of 7 My Experie
+  [li    ][        ] 'progressBarCompletedStep'                              | 'completed step 1 of 7 My Information'
+  [li    ][        ] 'progressBarActiveStep'                                 | 'current step 3 of 7 Application Questions 1 of 2'
+  [li    ][        ] 'progressBarInactiveStep'                               | 'step 4 of 7 Application Questions 2 of 2'
+  [div   ][        ] 'applyFlowPrimaryQuestionsPage'                         | 'Are you 18 years or older?*  Yes  The Boeing Company is a government
+  [div   ][        ] 'formField-fb845e243dd41001f2c0ac96bfef0000'            | 'Are you 18 years or older?*  Yes'
+  [div   ][        ] 'richText'                                              | 'Are you 18 years or older?*'
+  [div   ][        ] 'formField-fb845e243dd41001f2c0ac96bfef0003'            | 'The Boeing Company is a government contractor and does business all o
+  [div   ][        ] 'formField-fb845e243dd41001f2c0ad3120c10001'            | '2) Have you ever been employed by or served (full-time or part-time)
+  [div   ][        ] 'formField-fb845e243dd41001f2c0ad3120c10004'            | '3) Are you currently, or within the last three (3) years, have you be
+  [div   ][        ] 'formField-fb845e243dd41001f2c0ae650dbe0000'            | '4) To the best of your knowledge, do you have a "family member" who c
+  [div   ][        ] 'formField-fb845e243dd41001f2c0ae650dbe0003'            | '5) \u202fBoeing engages Deloitte, LLP for auditing purposes. This que
+  [div   ][        ] 'pageFooter'                                            | 'Back Save and Continue'
+  [button][        ] 'pageFooterBackButton'                                  | 'Back'
+  [button][        ] 'pageFooterNextButton'                                  | 'Save and Continue'
+  [div   ][        ] 'footerContainer'                                       | 'Follow Us Applicant Privacy Policy © 2026 Workday, Inc. All rights re
+  [span  ][        ] 'followUs'                                              | 'Follow Us'
+  [a     ][        ] 'socialIcon'                                            | ''
+  [a     ][        ] 'privacyLink'                                           | 'Applicant Privacy Policy'
+
+  Clicking 'save and continue' → step 4...
+
+======================================================================
+  STEP 4: current step 4 of 7 Application Questions 2 of 2
+  URL: ...ate-Space-Communications-Systems-Engineer-Analyst_JR2026506515-2/apply
+======================================================================
+  [a     ][        ] 'accessibilitySkipToMainContent'                        | 'Skip to main content'
+  [div   ][        ] 'header'                                                | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [a     ][        ] 'logoLink'                                              | ''
+  [img   ][        ] 'logo'                                                  | ''
+  [div   ][        ] 'headerTitle'                                           | ''
+  [div   ][        ] 'navigationContainer'                                   | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [div   ][        ] 'utilityButtonBar'                                      | 'English Settings aaronberkness@gmail.com'
+  [div   ][        ] 'utilityButtonBarLanguageMenu'                          | 'English'
+  [button][        ] 'utilityMenuButton'                                     | 'English'
+  [div   ][        ] 'utility-button-bar-divider'                            | ''
+  [div   ][        ] 'utilityButtonBarSettingsMenu'                          | 'Settings'
+  [div   ][        ] 'utilityButtonAccountTasksMenu'                         | 'aaronberkness@gmail.com'
+  [button][        ] 'navigationItem-Search for Jobs'                        | 'Search for Jobs'
+  [button][        ] 'navigationItem-Candidate Home'                         | 'Candidate Home'
+  [button][        ] 'hammyMenuIcon'                                         | ''
+  [div   ][        ] 'applyFlowPage'                                         | 'Back to Job Posting Associate Space Communications Systems Engineer A
+  [button][button  ] 'backToJobPosting'                                      | 'Back to Job Posting'
+  [h2    ][        ] 'jobTitleHeading'                                       | 'Associate Space Communications Systems Engineer Analyst'
+  [ol    ][        ] 'progressBar'                                           | 'completed step 1 of 7 My Information completed step 2 of 7 My Experie
+  [li    ][        ] 'progressBarCompletedStep'                              | 'completed step 1 of 7 My Information'
+  [li    ][        ] 'progressBarActiveStep'                                 | 'current step 4 of 7 Application Questions 2 of 2'
+  [li    ][        ] 'progressBarInactiveStep'                               | 'step 5 of 7 Voluntary Disclosures'
+  [div   ][        ] 'applyFlowSecondaryQuestionsPage'                       | 'Do you have the ability to obtain a U.S. Security Clearance for which
+  [div   ][        ] 'formField-e2434d31bb701001ffcbd15657450000'            | 'Do you have the ability to obtain a U.S. Security Clearance for which
+  [div   ][        ] 'richText'                                              | 'Do you have the ability to obtain a U.S. Security Clearance for which
+  [div   ][        ] 'formField-e2434d31bb701001ffcbd1f06ec70001'            | 'Do you have a Bachelor of Science degree in Engineering, Engineering
+  [div   ][        ] 'formField-e2434d31bb701001ffcbd28a6a970002'            | 'How many years of experience do you have in a position that required
+  [div   ][        ] 'formField-e2434d31bb701001ffcbd3246cd60001'            | 'Do you have strong software programming skills and experience of prog
+  [div   ][        ] 'formField-e2434d31bb701001ffcbd3246cd60004'            | 'Do you meet all the basic qualifications for this job?*  Yes'
+  [div   ][        ] 'formField-e2434d31bb701001ffcbd3be885c0000'            | "Do you have a Bachelor's degree or higher in Electrical Engineering?*
+  [div   ][        ] 'formField-e2434d31bb701001ffcbd3be885c0003'            | 'Do you have or have you held an active U.S. Security Clearance in the
+  [div   ][        ] 'formField-e2434d31bb701001ffcbd458b3590000'            | 'What is the highest level security clearance you currently hold or ha
+  [div   ][        ] 'pageFooter'                                            | 'Back Save and Continue'
+  [button][        ] 'pageFooterBackButton'                                  | 'Back'
+  [button][        ] 'pageFooterNextButton'                                  | 'Save and Continue'
+  [div   ][        ] 'footerContainer'                                       | 'Follow Us Applicant Privacy Policy © 2026 Workday, Inc. All rights re
+  [span  ][        ] 'followUs'                                              | 'Follow Us'
+  [a     ][        ] 'socialIcon'                                            | ''
+  [a     ][        ] 'privacyLink'                                           | 'Applicant Privacy Policy'
+
+  Clicking 'save and continue' → step 5...
+
+======================================================================
+  STEP 5: current step 5 of 7 Voluntary Disclosures
+  URL: ...ate-Space-Communications-Systems-Engineer-Analyst_JR2026506515-2/apply
+======================================================================
+  [a     ][        ] 'accessibilitySkipToMainContent'                        | 'Skip to main content'
+  [div   ][        ] 'header'                                                | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [a     ][        ] 'logoLink'                                              | ''
+  [img   ][        ] 'logo'                                                  | ''
+  [div   ][        ] 'headerTitle'                                           | ''
+  [div   ][        ] 'navigationContainer'                                   | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [div   ][        ] 'utilityButtonBar'                                      | 'English Settings aaronberkness@gmail.com'
+  [div   ][        ] 'utilityButtonBarLanguageMenu'                          | 'English'
+  [button][        ] 'utilityMenuButton'                                     | 'English'
+  [div   ][        ] 'utility-button-bar-divider'                            | ''
+  [div   ][        ] 'utilityButtonBarSettingsMenu'                          | 'Settings'
+  [div   ][        ] 'utilityButtonAccountTasksMenu'                         | 'aaronberkness@gmail.com'
+  [button][        ] 'navigationItem-Search for Jobs'                        | 'Search for Jobs'
+  [button][        ] 'navigationItem-Candidate Home'                         | 'Candidate Home'
+  [button][        ] 'hammyMenuIcon'                                         | ''
+  [div   ][        ] 'applyFlowPage'                                         | 'Back to Job Posting Associate Space Communications Systems Engineer A
+  [button][button  ] 'backToJobPosting'                                      | 'Back to Job Posting'
+  [h2    ][        ] 'jobTitleHeading'                                       | 'Associate Space Communications Systems Engineer Analyst'
+  [ol    ][        ] 'progressBar'                                           | 'completed step 1 of 7 My Information completed step 2 of 7 My Experie
+  [li    ][        ] 'progressBarCompletedStep'                              | 'completed step 1 of 7 My Information'
+  [li    ][        ] 'progressBarActiveStep'                                 | 'current step 5 of 7 Voluntary Disclosures'
+  [li    ][        ] 'progressBarInactiveStep'                               | 'step 6 of 7 Self Identify'
+  [div   ][        ] 'applyFlowVoluntaryDisclosuresPage'                     | 'Personal Data Statement  Individuals seeking employment are considere
+  [div   ][        ] 'instructionalText'                                     | 'Individuals seeking employment are considered without regards to race
+  [div   ][        ] 'instructional-spacer'                                  | ''
+  [div   ][        ] 'formField-gender'                                      | 'What is your gender?* Male'
+  [div   ][        ] 'formField-ethnicity'                                   | 'What is your ethnicity?* White (not Hispanic or Latino) (United State
+  [div   ][        ] 'formField-veteranStatus'                               | 'Are you a veteran?* I AM NOT A VETERAN'
+  [div   ][        ] 'formField-acceptTermsAndAgreements'                    | 'I have received the Boeing Applicant Privacy Notice*'
+  [div   ][        ] 'pageFooter'                                            | 'Back Save and Continue'
+  [button][        ] 'pageFooterBackButton'                                  | 'Back'
+  [button][        ] 'pageFooterNextButton'                                  | 'Save and Continue'
+  [div   ][        ] 'footerContainer'                                       | 'Follow Us Applicant Privacy Policy © 2026 Workday, Inc. All rights re
+  [span  ][        ] 'followUs'                                              | 'Follow Us'
+  [a     ][        ] 'socialIcon'                                            | ''
+  [a     ][        ] 'privacyLink'                                           | 'Applicant Privacy Policy'
+
+  Clicking 'save and continue' → step 6...
+
+======================================================================
+  STEP 6: current step 5 of 7 Voluntary Disclosures
+  URL: ...ate-Space-Communications-Systems-Engineer-Analyst_JR2026506515-2/apply
+======================================================================
+  [a     ][        ] 'accessibilitySkipToMainContent'                        | 'Skip to main content'
+  [div   ][        ] 'header'                                                | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [a     ][        ] 'logoLink'                                              | ''
+  [img   ][        ] 'logo'                                                  | ''
+  [div   ][        ] 'headerTitle'                                           | ''
+  [div   ][        ] 'navigationContainer'                                   | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [div   ][        ] 'utilityButtonBar'                                      | 'English Settings aaronberkness@gmail.com'
+  [div   ][        ] 'utilityButtonBarLanguageMenu'                          | 'English'
+  [button][        ] 'utilityMenuButton'                                     | 'English'
+  [div   ][        ] 'utility-button-bar-divider'                            | ''
+  [div   ][        ] 'utilityButtonBarSettingsMenu'                          | 'Settings'
+  [div   ][        ] 'utilityButtonAccountTasksMenu'                         | 'aaronberkness@gmail.com'
+  [button][        ] 'navigationItem-Search for Jobs'                        | 'Search for Jobs'
+  [button][        ] 'navigationItem-Candidate Home'                         | 'Candidate Home'
+  [button][        ] 'hammyMenuIcon'                                         | ''
+  [div   ][        ] 'applyFlowPage'                                         | 'Back to Job Posting Associate Space Communications Systems Engineer A
+  [button][button  ] 'backToJobPosting'                                      | 'Back to Job Posting'
+  [h2    ][        ] 'jobTitleHeading'                                       | 'Associate Space Communications Systems Engineer Analyst'
+  [ol    ][        ] 'progressBar'                                           | 'completed step 1 of 7 My Information completed step 2 of 7 My Experie
+  [li    ][        ] 'progressBarCompletedStep'                              | 'completed step 1 of 7 My Information'
+  [li    ][        ] 'progressBarActiveStep'                                 | 'current step 5 of 7 Voluntary Disclosures'
+  [li    ][        ] 'progressBarInactiveStep'                               | 'step 6 of 7 Self Identify'
+  [div   ][        ] 'applyFlowVoluntaryDisclosuresPage'                     | 'Personal Data Statement  Individuals seeking employment are considere
+  [div   ][        ] 'instructionalText'                                     | 'Individuals seeking employment are considered without regards to race
+  [div   ][        ] 'instructional-spacer'                                  | ''
+  [div   ][        ] 'formField-gender'                                      | 'What is your gender?* Male'
+  [div   ][        ] 'formField-ethnicity'                                   | 'What is your ethnicity?* White (not Hispanic or Latino) (United State
+  [div   ][        ] 'formField-veteranStatus'                               | 'Are you a veteran?* I AM NOT A VETERAN'
+  [div   ][        ] 'formField-acceptTermsAndAgreements'                    | 'I have received the Boeing Applicant Privacy Notice*'
+  [div   ][        ] 'pageFooter'                                            | 'Back Save and Continue'
+  [button][        ] 'pageFooterBackButton'                                  | 'Back'
+  [button][        ] 'pageFooterNextButton'                                  | 'Save and Continue'
+  [div   ][        ] 'footerContainer'                                       | 'Follow Us Applicant Privacy Policy © 2026 Workday, Inc. All rights re
+  [span  ][        ] 'followUs'                                              | 'Follow Us'
+  [a     ][        ] 'socialIcon'                                            | ''
+  [a     ][        ] 'privacyLink'                                           | 'Applicant Privacy Policy'
+
+  Clicking 'save and continue' → step 7...
+
+======================================================================
+  STEP 7: current step 6 of 7 Self Identify
+  URL: ...ate-Space-Communications-Systems-Engineer-Analyst_JR2026506515-2/apply
+======================================================================
+  [a     ][        ] 'accessibilitySkipToMainContent'                        | 'Skip to main content'
+  [div   ][        ] 'header'                                                | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [a     ][        ] 'logoLink'                                              | ''
+  [img   ][        ] 'logo'                                                  | ''
+  [div   ][        ] 'headerTitle'                                           | ''
+  [div   ][        ] 'navigationContainer'                                   | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [div   ][        ] 'utilityButtonBar'                                      | 'English Settings aaronberkness@gmail.com'
+  [div   ][        ] 'utilityButtonBarLanguageMenu'                          | 'English'
+  [button][        ] 'utilityMenuButton'                                     | 'English'
+  [div   ][        ] 'utility-button-bar-divider'                            | ''
+  [div   ][        ] 'utilityButtonBarSettingsMenu'                          | 'Settings'
+  [div   ][        ] 'utilityButtonAccountTasksMenu'                         | 'aaronberkness@gmail.com'
+  [button][        ] 'navigationItem-Search for Jobs'                        | 'Search for Jobs'
+  [button][        ] 'navigationItem-Candidate Home'                         | 'Candidate Home'
+  [button][        ] 'hammyMenuIcon'                                         | ''
+  [div   ][        ] 'applyFlowPage'                                         | 'Back to Job Posting Associate Space Communications Systems Engineer A
+  [button][button  ] 'backToJobPosting'                                      | 'Back to Job Posting'
+  [h2    ][        ] 'jobTitleHeading'                                       | 'Associate Space Communications Systems Engineer Analyst'
+  [ol    ][        ] 'progressBar'                                           | 'completed step 1 of 7 My Information completed step 2 of 7 My Experie
+  [li    ][        ] 'progressBarCompletedStep'                              | 'completed step 1 of 7 My Information'
+  [li    ][        ] 'progressBarActiveStep'                                 | 'current step 6 of 7 Self Identify'
+  [li    ][        ] 'progressBarInactiveStep'                               | 'step 7 of 7 Review'
+  [div   ][        ] 'applyFlowSelfIdentifyPage'                             | 'Language* English Voluntary Self-Identification of Disability Form CC
+  [div   ][        ] 'formField-disabilityForm'                              | 'Language* English'
+  [div   ][        ] 'formField-name'                                        | 'Name*'
+  [div   ][        ] 'formField-employeeId'                                  | 'Employee ID (if applicable)'
+  [div   ][        ] 'formField-dateSignedOn'                                | 'Date* current value is MM/DD/YYYY MM / DD / YYYY'
+  [div   ][        ] 'dateInputWrapper'                                      | 'MM / DD / YYYY'
+  [div   ][        ] 'dateSectionMonth-display'                              | 'MM'
+  [input ][        ] 'dateSectionMonth-input'                                | ''
+  [div   ][        ] 'dateSectionDay-display'                                | 'DD'
+  [input ][        ] 'dateSectionDay-input'                                  | ''
+  [div   ][        ] 'dateSectionYear-display'                               | 'YYYY'
+  [input ][        ] 'dateSectionYear-input'                                 | ''
+  [div   ][        ] 'dateIcon'                                              | ''
+  [div   ][        ] 'richText'                                              | 'We are a federal contractor or subcontractor. The law requires us to
+  [div   ][        ] 'formField-disabilityStatus'                            | 'Please check one of the boxes below:* Yes, I have a disability, or ha
+  [span  ][        ] '331160068-rows_3'                                      | 'Yes, I have a disability, or have had one in the past No, I do not ha
+  [fieldset][        ] 'disabilityStatus-CheckboxGroup'                        | 'Yes, I have a disability, or have had one in the past No, I do not ha
+  [div   ][        ] 'pageFooter'                                            | 'Back Save and Continue'
+  [button][        ] 'pageFooterBackButton'                                  | 'Back'
+  [button][        ] 'pageFooterNextButton'                                  | 'Save and Continue'
+  [div   ][        ] 'footerContainer'                                       | 'Follow Us Applicant Privacy Policy © 2026 Workday, Inc. All rights re
+  [span  ][        ] 'followUs'                                              | 'Follow Us'
+  [a     ][        ] 'socialIcon'                                            | ''
+  [a     ][        ] 'privacyLink'                                           | 'Applicant Privacy Policy'
+
+  Clicking 'save and continue' → step 8...
+
+======================================================================
+  STEP 8: current step 6 of 7 Self Identify
+  URL: ...ate-Space-Communications-Systems-Engineer-Analyst_JR2026506515-2/apply
+======================================================================
+  [a     ][        ] 'accessibilitySkipToMainContent'                        | 'Skip to main content'
+  [div   ][        ] 'header'                                                | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [a     ][        ] 'logoLink'                                              | ''
+  [img   ][        ] 'logo'                                                  | ''
+  [div   ][        ] 'headerTitle'                                           | ''
+  [div   ][        ] 'navigationContainer'                                   | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [div   ][        ] 'utilityButtonBar'                                      | 'English Settings aaronberkness@gmail.com'
+  [div   ][        ] 'utilityButtonBarLanguageMenu'                          | 'English'
+  [button][        ] 'utilityMenuButton'                                     | 'English'
+  [div   ][        ] 'utility-button-bar-divider'                            | ''
+  [div   ][        ] 'utilityButtonBarSettingsMenu'                          | 'Settings'
+  [div   ][        ] 'utilityButtonAccountTasksMenu'                         | 'aaronberkness@gmail.com'
+  [button][        ] 'navigationItem-Search for Jobs'                        | 'Search for Jobs'
+  [button][        ] 'navigationItem-Candidate Home'                         | 'Candidate Home'
+  [button][        ] 'hammyMenuIcon'                                         | ''
+  [div   ][        ] 'applyFlowPage'                                         | 'Back to Job Posting Associate Space Communications Systems Engineer A
+  [button][button  ] 'backToJobPosting'                                      | 'Back to Job Posting'
+  [h2    ][        ] 'jobTitleHeading'                                       | 'Associate Space Communications Systems Engineer Analyst'
+  [ol    ][        ] 'progressBar'                                           | 'completed step 1 of 7 My Information completed step 2 of 7 My Experie
+  [li    ][        ] 'progressBarCompletedStep'                              | 'completed step 1 of 7 My Information'
+  [li    ][        ] 'progressBarActiveStep'                                 | 'current step 6 of 7 Self Identify'
+  [li    ][        ] 'progressBarInactiveStep'                               | 'step 7 of 7 Review'
+  [div   ][        ] 'errorHeading'                                          | 'Error-Name The field Name is required and must have a value. Error-Pl
+  [div   ][        ] 'applyFlowSelfIdentifyPage'                             | 'Language* English Voluntary Self-Identification of Disability Form CC
+  [div   ][        ] 'formField-disabilityForm'                              | 'Language* English'
+  [div   ][        ] 'formField-name'                                        | 'Name*  Error: The field Name is required and must have a value.'
+  [p     ][        ] 'inputAlert'                                            | 'Error: The field Name is required and must have a value.'
+  [div   ][        ] 'formField-employeeId'                                  | 'Employee ID (if applicable)'
+  [div   ][        ] 'formField-dateSignedOn'                                | 'Date* current value is 5/5/2026 05 / 05 / 2026'
+  [div   ][        ] 'dateInputWrapper'                                      | '05 / 05 / 2026'
+  [div   ][        ] 'dateSectionMonth-display'                              | '05'
+  [input ][        ] 'dateSectionMonth-input'                                | ''
+  [div   ][        ] 'dateSectionDay-display'                                | '05'
+  [input ][        ] 'dateSectionDay-input'                                  | ''
+  [div   ][        ] 'dateSectionYear-display'                               | '2026'
+  [input ][        ] 'dateSectionYear-input'                                 | ''
+  [div   ][        ] 'dateIcon'                                              | ''
+  [div   ][        ] 'richText'                                              | 'We are a federal contractor or subcontractor. The law requires us to
+  [div   ][        ] 'formField-disabilityStatus'                            | 'Please check one of the boxes below:* Yes, I have a disability, or ha
+  [span  ][        ] '449277898-rows_3'                                      | 'Yes, I have a disability, or have had one in the past No, I do not ha
+  [fieldset][        ] 'disabilityStatus-CheckboxGroup'                        | 'Yes, I have a disability, or have had one in the past No, I do not ha
+  [div   ][        ] 'pageFooter'                                            | 'Back Save and Continue'
+  [button][        ] 'pageFooterBackButton'                                  | 'Back'
+  [button][        ] 'pageFooterNextButton'                                  | 'Save and Continue'
+  [div   ][        ] 'footerContainer'                                       | 'Follow Us Applicant Privacy Policy © 2026 Workday, Inc. All rights re
+  [span  ][        ] 'followUs'                                              | 'Follow Us'
+  [a     ][        ] 'socialIcon'                                            | ''
+  [a     ][        ] 'privacyLink'                                           | 'Applicant Privacy Policy'
+
+  Clicking 'save and continue' → step 9...
+
+======================================================================
+  STEP 9: current step 6 of 7 Self Identify
+  URL: ...ate-Space-Communications-Systems-Engineer-Analyst_JR2026506515-2/apply
+======================================================================
+  [a     ][        ] 'accessibilitySkipToMainContent'                        | 'Skip to main content'
+  [div   ][        ] 'header'                                                | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [a     ][        ] 'logoLink'                                              | ''
+  [img   ][        ] 'logo'                                                  | ''
+  [div   ][        ] 'headerTitle'                                           | ''
+  [div   ][        ] 'navigationContainer'                                   | 'English Settings aaronberkness@gmail.com Search for Jobs Candidate Ho
+  [div   ][        ] 'utilityButtonBar'                                      | 'English Settings aaronberkness@gmail.com'
+  [div   ][        ] 'utilityButtonBarLanguageMenu'                          | 'English'
+  [button][        ] 'utilityMenuButton'                                     | 'English'
+  [div   ][        ] 'utility-button-bar-divider'                            | ''
+  [div   ][        ] 'utilityButtonBarSettingsMenu'                          | 'Settings'
+  [div   ][        ] 'utilityButtonAccountTasksMenu'                         | 'aaronberkness@gmail.com'
+  [button][        ] 'navigationItem-Search for Jobs'                        | 'Search for Jobs'
+  [button][        ] 'navigationItem-Candidate Home'                         | 'Candidate Home'
+  [button][        ] 'hammyMenuIcon'                                         | ''
+  [div   ][        ] 'applyFlowPage'                                         | 'Back to Job Posting Associate Space Communications Systems Engineer A
+  [button][button  ] 'backToJobPosting'                                      | 'Back to Job Posting'
+  [h2    ][        ] 'jobTitleHeading'                                       | 'Associate Space Communications Systems Engineer Analyst'
+  [ol    ][        ] 'progressBar'                                           | 'completed step 1 of 7 My Information completed step 2 of 7 My Experie
+  [li    ][        ] 'progressBarCompletedStep'                              | 'completed step 1 of 7 My Information'
+  [li    ][        ] 'progressBarActiveStep'                                 | 'current step 6 of 7 Self Identify'
+  [li    ][        ] 'progressBarInactiveStep'                               | 'step 7 of 7 Review'
+  [div   ][        ] 'errorHeading'                                          | 'Error-Name The field Name is required and must have a value. Error-Pl
+  [div   ][        ] 'applyFlowSelfIdentifyPage'                             | 'Language* English Voluntary Self-Identification of Disability Form CC
+  [div   ][        ] 'formField-disabilityForm'                              | 'Language* English'
+  [div   ][        ] 'formField-name'                                        | 'Name*  Error: The field Name is required and must have a value.'
+  [p     ][        ] 'inputAlert'                                            | 'Error: The field Name is required and must have a value.'
+  [div   ][        ] 'formField-employeeId'                                  | 'Employee ID (if applicable)'
+  [div   ][        ] 'formField-dateSignedOn'                                | 'Date* current value is 5/5/2026 05 / 05 / 2026'
+  [div   ][        ] 'dateInputWrapper'                                      | '05 / 05 / 2026'
+  [div   ][        ] 'dateSectionMonth-display'                              | '05'
+  [input ][        ] 'dateSectionMonth-input'                                | ''
+  [div   ][        ] 'dateSectionDay-display'                                | '05'
+  [input ][        ] 'dateSectionDay-input'                                  | ''
+  [div   ][        ] 'dateSectionYear-display'                               | '2026'
+  [input ][        ] 'dateSectionYear-input'                                 | ''
+  [div   ][        ] 'dateIcon'                                              | ''
+  [div   ][        ] 'richText'                                              | 'We are a federal contractor or subcontractor. The law requires us to
+  [div   ][        ] 'formField-disabilityStatus'                            | 'Please check one of the boxes below:* Yes, I have a disability, or ha
+  [span  ][        ] '830638295-rows_3'                                      | 'Yes, I have a disability, or have had one in the past No, I do not ha
+  [fieldset][        ] 'disabilityStatus-CheckboxGroup'                        | 'Yes, I have a disability, or have had one in the past No, I do not ha
+  [div   ][        ] 'pageFooter'                                            | 'Back Save and Continue'
+  [button][        ] 'pageFooterBackButton'                                  | 'Back'
+  [button][        ] 'pageFooterNextButton'                                  | 'Save and Continue'
+  [div   ][        ] 'footerContainer'                                       | 'Follow Us Applicant Privacy Policy © 2026 Workday, Inc. All rights re
+  [span  ][        ] 'followUs'                                              | 'Follow Us'
+  [a     ][        ] 'socialIcon'                                            | ''
+  [a     ][        ] 'privacyLink'                                           | 'Applicant Privacy Policy'
+
+  Clicking 'save and continue' → step 10...
