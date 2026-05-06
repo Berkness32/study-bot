@@ -259,14 +259,81 @@ def fill_page(page: Page, job_info: dict, docs: dict, components: dict) -> dict:
     _upload_file(page, "resume",       docs.get("resume_path"),       filled_summary, flagged)
     _upload_file(page, "cover_letter", docs.get("cover_letter_path"), filled_summary, flagged)
 
-    # ── 4. Compliance question dropdowns (React Select + native fallback) ──────
+    # ── 4. URL fields by label text (website / LinkedIn) ─────────────────────
+    _fill_url_fields(page, field_data, filled_summary, flagged)
+
+    # ── 5. Compliance question dropdowns (React Select + native fallback) ──────
     _fill_compliance_questions(page, filled_summary, flagged)
 
-    # ── 5. EEOC self-identification dropdowns ─────────────────────────────────
+    # ── 6. EEOC self-identification dropdowns ─────────────────────────────────
     _fill_eeoc(page, eeoc_prefs, filled_summary, flagged)
 
     print(f"  Filled {len(filled_summary)} field(s), {len(flagged)} flagged.")
     return {"filled_fields": filled_summary, "flagged": flagged}
+
+
+# Keyword → field_data key for URL label matching
+_URL_LABEL_HINTS = {
+    "linkedin":  "linkedin",
+    "website":   "portfolio",
+    "portfolio": "portfolio",
+    "github":    "portfolio",   # fall back to portfolio if no separate github value
+    "personal":  "portfolio",
+}
+
+
+def _fill_url_fields(page: Page, field_data: dict,
+                     filled_summary: list, flagged: list) -> None:
+    """
+    Fill URL/text inputs whose associated label mentions a known link type.
+    Greenhouse often uses dynamic IDs (e.g. job_application_urls_attributes_0_url)
+    so we match by label text rather than by id/name.
+    Skips any input that already has a value.
+    """
+    already_filled = {f["field"] for f in filled_summary}
+
+    inputs = page.query_selector_all(
+        "input[type='url'], input[type='text'], input[type='email']"
+    )
+    for el in inputs:
+        try:
+            if not el.is_visible():
+                continue
+            if el.input_value():      # already filled — don't overwrite
+                continue
+            if "select__input" in (el.get_attribute("class") or ""):
+                continue
+
+            field_id = el.get_attribute("id") or ""
+            if field_id in already_filled:
+                continue
+
+            # Find the label associated with this input
+            label_text = ""
+            if field_id:
+                lbl = page.query_selector(f'label[for="{field_id}"]')
+                if lbl:
+                    label_text = lbl.inner_text().strip().lower()
+
+            # Also check aria-label and placeholder as fallbacks
+            if not label_text:
+                label_text = (
+                    (el.get_attribute("aria-label") or "")
+                    + " "
+                    + (el.get_attribute("placeholder") or "")
+                ).lower()
+
+            for keyword, data_key in _URL_LABEL_HINTS.items():
+                if keyword in label_text:
+                    value = field_data.get(data_key, "")
+                    if value:
+                        el.fill(value)
+                        filled_summary.append({"field": field_id or label_text[:40],
+                                               "value": value[:80]})
+                        print(f"  Filled URL field: '{label_text.strip()[:40]}' → {value}")
+                    break
+        except Exception as e:
+            flagged.append({"field": "url_field", "error": str(e)})
 
 
 def _upload_file(page: Page, field_key: str, file_path,

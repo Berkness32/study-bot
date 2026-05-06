@@ -18,6 +18,7 @@ unity_raw.jsonl
 
 # Job apps — personal info and generated output
 data/job-apps/components.yaml
+data/job-apps/workday_components.yaml
 data/job-apps/output/
 job_agent_support/credentials.yaml
 

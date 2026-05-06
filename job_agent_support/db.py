@@ -1,6 +1,12 @@
 """
 job_agent_support/db.py
-SQLite helper: initialize the applications table and insert records.
+SQLite helper: applications table and dead_listings table.
+
+Tables
+------
+applications   — jobs that were applied to
+dead_listings  — jobs where the posting was no longer available (separate so
+                 applications remains a clean record of what was actually applied to)
 """
 
 import sqlite3
@@ -8,7 +14,7 @@ from pathlib import Path
 
 
 def init_db(db_path: Path) -> None:
-    """Create the applications table if it doesn't exist."""
+    """Create all tables if they don't exist."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
         conn.execute("""
@@ -26,7 +32,65 @@ def init_db(db_path: Path) -> None:
                 status       TEXT DEFAULT 'applied'
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dead_listings (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_title    TEXT,
+                company      TEXT,
+                job_board    TEXT,
+                date_found   TEXT    NOT NULL,
+                listing_url  TEXT,
+                reason       TEXT DEFAULT 'job_not_found'
+            )
+        """)
         conn.commit()
+
+
+def is_dead_listing(db_path: Path, url: str = None,
+                    job_title: str = None, company: str = None) -> bool:
+    """Return True if this listing was previously logged as not found."""
+    init_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        if url:
+            row = conn.execute(
+                "SELECT 1 FROM dead_listings WHERE listing_url = ? LIMIT 1", (url,)
+            ).fetchone()
+            if row:
+                return True
+        if job_title and company:
+            row = conn.execute(
+                "SELECT 1 FROM dead_listings WHERE lower(job_title) = lower(?) "
+                "AND lower(company) = lower(?) LIMIT 1",
+                (job_title, company),
+            ).fetchone()
+            if row:
+                return True
+    return False
+
+
+def log_dead_listing(db_path: Path, record: dict) -> int:
+    """
+    Insert a dead-listing record. Returns the new row id.
+    record keys: job_title, company, job_board, date_found, listing_url, reason
+    """
+    init_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO dead_listings
+                (job_title, company, job_board, date_found, listing_url, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.get("job_title", ""),
+                record.get("company", ""),
+                record.get("job_board", "direct"),
+                record.get("date_found", ""),
+                record.get("listing_url"),
+                record.get("reason", "job_not_found"),
+            ),
+        )
+        return cursor.lastrowid
 
 
 def already_applied(db_path: Path, url: str = None,

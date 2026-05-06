@@ -36,7 +36,8 @@ from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from playwright.sync_api import sync_playwright
-from job_agent_support.db import already_applied, log_application
+from job_agent_support.db import (already_applied, log_application,
+                                   is_dead_listing, log_dead_listing)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 COMPONENTS_PATH  = Path("data/job-apps/components.yaml")
@@ -44,10 +45,12 @@ OUTPUT_DIR       = Path("data/job-apps/output")
 ACTIONS_LOG      = Path("logs/actions_log.json")
 CREDENTIALS_PATH = Path("job_agent_support/credentials.yaml")
 DB_PATH          = Path("data/job-apps/applications.db")
+SCAN_LOG_DIR     = Path("logs/job_agents_logs")
 CHAT_MODEL       = "qwen3:8b"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 ACTIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
+SCAN_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -290,11 +293,53 @@ def detect_easy_apply(page) -> dict | None:
         try:
             el = page.query_selector(sel)
             if el and el.is_visible():
-                href = el.get_attribute("href")
-                return {"url": href or page.url}
+                return {"url": page.url}
         except Exception:
             pass
     return None
+
+
+# ── Job-not-found detection ───────────────────────────────────────────────────
+
+_NOT_FOUND_PHRASES = [
+    "job not found",
+    "job listing not found",
+    "this job is no longer available",
+    "this position is no longer available",
+    "position has been filled",
+    "this posting has expired",
+    "posting has been removed",
+    "no longer accepting applications",
+    "this job has been closed",
+    "listing is no longer active",
+]
+
+
+def detect_job_not_found(page) -> bool:
+    """Return True if the current page indicates the job posting no longer exists."""
+    try:
+        # Check title first (cheap)
+        title = page.title().lower()
+        if any(p in title for p in _NOT_FOUND_PHRASES):
+            return True
+        # Check visible body text
+        body = page.inner_text("body").lower()
+        return any(p in body for p in _NOT_FOUND_PHRASES)
+    except Exception:
+        return False
+
+
+def _log_dead(url: str, title: str, company: str, board: str) -> None:
+    log_dead_listing(DB_PATH, {
+        "job_title":   title,
+        "company":     company,
+        "job_board":   board,
+        "date_found":  datetime.now().strftime("%Y-%m-%d"),
+        "listing_url": url,
+        "reason":      "job_not_found",
+    })
+    log_action("job_not_found", title, company, "skipped", f"URL: {url}")
+    print(f"  ⚠️  Job not found — logged to dead_listings and skipping.")
 
 
 # ── Components loader ─────────────────────────────────────────────────────────
@@ -541,6 +586,24 @@ def _add_bullet(doc, text: str):
     p.add_run(text).font.size = Pt(11)
 
 
+_MONTHS = {
+    "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
+    "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
+}
+
+def _exp_start_date(exp: dict) -> tuple[int, int]:
+    """Return (year, month) parsed from the start half of a dates string for sorting."""
+    dates = exp.get("dates", "")
+    start = dates.split("–")[0].split("-")[0].strip().lower()
+    parts = start.split()
+    try:
+        month = _MONTHS.get(parts[0], 0)
+        year  = int(parts[1])
+        return (year, month)
+    except (IndexError, ValueError):
+        return (0, 0)
+
+
 def build_resume_docx(job_info: dict, selected: dict,
                       components: dict, output_path: Path):
     doc = Document()
@@ -735,6 +798,8 @@ def build_resume_docx(job_info: dict, selected: dict,
     related_exp    = [e for e in unique_exp if _is_related(e["company"])]
     additional_exp = [e for e in unique_exp if not _is_related(e["company"])]
 
+    additional_exp.sort(key=_exp_start_date, reverse=True)
+
     if related_exp:
         _add_section_header(doc, "Related Experience")
         for sel_exp in related_exp:
@@ -792,7 +857,7 @@ def build_cover_letter_docx(job_info: dict, selected: dict,
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after  = Pt(space_after)
         if para.runs:
-            para.runs[0].font.size = Pt(11)
+            para.runs[0].font.size = Pt(12)
         return para
 
     _p(datetime.now().strftime("%B %d, %Y"))
@@ -909,6 +974,52 @@ def resolve_apply_url(url: str, page) -> str:
         except Exception:
             pass
     return url
+
+
+# ── Page scanner ─────────────────────────────────────────────────────────────
+
+def scan_page_to_log(page, job_info: dict) -> Path:
+    """Scrape full HTML from the current page, write to a timestamped log file,
+    then optionally append a user note. Returns the log file path."""
+    timestamp  = datetime.now().strftime("%Y%m%d_%H%M%S")
+    company    = re.sub(r'[^\w\s-]', '', job_info.get("company", "unknown")).strip().replace(" ", "_")
+    log_path   = SCAN_LOG_DIR / f"scan_{company}_{timestamp}.txt"
+
+    html = page.content()
+    url  = page.url
+
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write(f"URL: {url}\n")
+        f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Job: {job_info.get('job_title', 'N/A')} at {job_info.get('company', 'N/A')}\n")
+        f.write("=" * 80 + "\n\n")
+        f.write(html)
+
+    print(f"\n  📄 Page HTML saved to: {log_path}")
+
+    while True:
+        add_note = input("  Add a user note? [y/n]: ").strip().lower()
+        if add_note == "y":
+            print("  Enter your note (press ENTER twice when done):")
+            lines = []
+            while True:
+                line = input()
+                if line == "" and lines and lines[-1] == "":
+                    break
+                lines.append(line)
+            note = "\n".join(lines).strip()
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write("\n\n" + "=" * 80 + "\n")
+                f.write("USER NOTE:\n")
+                f.write(note + "\n")
+            print("  ✅ Note appended to scan log.")
+            break
+        elif add_note == "n":
+            break
+        else:
+            print("  Please enter y or n.")
+
+    return log_path
 
 
 # ── Step 4: Inspect form ──────────────────────────────────────────────────────
@@ -1129,7 +1240,7 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
         print(f"   Company   : {job_info.get('company')}")
         print(f"   Board     : {source_board}")
         print()
-        print("   Easy Apply Link:")
+        print("   Job URL:")
         print(f"   👉  {easy_url}")
         print()
         print("   Generating tailored documents for your reference...")
@@ -1186,6 +1297,11 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
     apply_url = resolve_apply_url(job_info.get("apply_url", url), page)
     job_info["apply_url"] = apply_url
 
+    if detect_job_not_found(page):
+        _log_dead(apply_url, job_info.get("job_title", ""),
+                  job_info.get("company", ""), source_board)
+        return
+
     all_filled  = []
     all_flagged = []
     page_num    = 0
@@ -1195,6 +1311,12 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
 
         # ── Step 4: Inspect current page ─────────────────────────────────────
         fields = inspect_application_form(apply_url, page)
+
+        if detect_job_not_found(page):
+            _log_dead(apply_url, job_info.get("job_title", ""),
+                      job_info.get("company", ""), source_board)
+            return
+
         log_action("inspected_form",
                    job_info.get("job_title", ""), job_info.get("company", ""),
                    "success", f"page {page_num}, {len(fields)} fields")
@@ -1203,6 +1325,7 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
             f"Page {page_num} — {len(fields)} field(s) found",
             {
                 "y": "Fill this page",
+                "s": "Scan — save full page HTML to log file",
                 "r": "Navigate manually — re-inspect when ready",
                 "n": "Stop here",
             },
@@ -1212,6 +1335,13 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
                        job_info.get("job_title", ""), job_info.get("company", ""), "rejected")
             print("  Stopped. Documents saved.")
             return
+        if step4_choice == "s":
+            scan_path = scan_page_to_log(page, job_info)
+            log_action("page_scan",
+                       job_info.get("job_title", ""), job_info.get("company", ""),
+                       "success", f"Log: {scan_path}")
+            page_num -= 1
+            continue
         if step4_choice == "r":
             input("\n  Navigate the browser to the application page, then press ENTER to re-inspect.")
             apply_url = page.url
@@ -1225,6 +1355,13 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
         ats_mod = load_ats_module(ats)
         print(f"\n  ATS detected : {ats}")
         print("  Filling page — browser is visible, you can click in it at any time.")
+
+        # Workday may redirect to a login page — handle login before filling
+        if ats == "workday":
+            from job_agent_support.ats.workday import _is_login_page, _do_login
+            if _is_login_page(page):
+                _do_login(page)
+                page.wait_for_timeout(2000)
 
         if ats_mod:
             result = ats_mod["fill_page"](page, job_info, docs, components)
@@ -1382,11 +1519,26 @@ def main():
                         print("  ⏭  Already applied — skipping.")
                         continue
 
+                    if is_dead_listing(DB_PATH, url=listing["url"],
+                                       job_title=listing["title"],
+                                       company=listing["company"]):
+                        print("  ⏭  Previously not found — skipping.")
+                        continue
+
                     # Navigate to the job detail page for a real preview
                     try:
                         page.goto(listing["url"],
                                   wait_until="domcontentloaded", timeout=30000)
                         page.wait_for_timeout(2000)
+
+                        if detect_job_not_found(page):
+                            _log_dead(listing["url"], listing["title"],
+                                      listing["company"], board)
+                            page.goto(listings_url,
+                                      wait_until="domcontentloaded", timeout=30000)
+                            page.wait_for_timeout(2000)
+                            continue
+
                         preview = page.evaluate("""() => {
                             const sel = [
                                 '.job-post-item',
