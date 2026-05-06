@@ -15,37 +15,32 @@ Requirements:
 """
 
 import argparse
-import copy
 import json
 import os
 import platform
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
 from datetime import datetime
 from pathlib import Path
 
 import ollama
 import yaml
-from docx import Document
-from docx.shared import Pt, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.opc.constants import RELATIONSHIP_TYPE as RT
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
 from playwright.sync_api import sync_playwright
 from job_agent_support.db import (already_applied, log_application,
-                                   is_dead_listing, log_dead_listing)
+                                   is_dead_listing, log_dead_listing,
+                                   is_apply_later, log_apply_later)
+from job_agent_support.doc_builder import (
+    ALLOWED_TAGS, validate_tag, generate_documents as _build_documents,
+)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-COMPONENTS_PATH  = Path("data/job-apps/components.yaml")
-OUTPUT_DIR       = Path("data/job-apps/output")
-ACTIONS_LOG      = Path("logs/actions_log.json")
-CREDENTIALS_PATH = Path("job_agent_support/credentials.yaml")
-DB_PATH          = Path("data/job-apps/applications.db")
-SCAN_LOG_DIR     = Path("logs/job_agents_logs")
+_ROOT            = Path(__file__).parent
+COMPONENTS_PATH  = _ROOT / "data/job-apps/components.yaml"
+OUTPUT_DIR       = _ROOT / "data/job-apps/output"
+ACTIONS_LOG      = _ROOT / "logs/actions_log.json"
+CREDENTIALS_PATH = _ROOT / "job_agent_support/credentials.yaml"
+DB_PATH          = _ROOT / "data/job-apps/applications.db"
+SCAN_LOG_DIR     = _ROOT / "logs/job_agents_logs"
 CHAT_MODEL       = "qwen3:8b"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -60,30 +55,6 @@ def _strip_llm_raw(text: str) -> str:
     text = re.sub(r'^```\s*',     '', text, flags=re.MULTILINE)
     text = re.sub(r'\s*```$',     '', text)
     return text.strip()
-
-
-def _add_hyperlink(para, url: str, text: str, size_pt: float = 11):
-    part = para.part
-    r_id = part.relate_to(url, RT.HYPERLINK, is_external=True)
-    hyperlink = OxmlElement('w:hyperlink')
-    hyperlink.set(qn('r:id'), r_id)
-    run = OxmlElement('w:r')
-    rPr = OxmlElement('w:rPr')
-    color = OxmlElement('w:color')
-    color.set(qn('w:val'), '0563C1')
-    rPr.append(color)
-    u = OxmlElement('w:u')
-    u.set(qn('w:val'), 'single')
-    rPr.append(u)
-    sz = OxmlElement('w:sz')
-    sz.set(qn('w:val'), str(int(size_pt * 2)))
-    rPr.append(sz)
-    run.append(rPr)
-    t = OxmlElement('w:t')
-    t.text = text
-    run.append(t)
-    hyperlink.append(run)
-    para._p.append(hyperlink)
 
 
 def log_action(action: str, job_title: str, company: str,
@@ -171,37 +142,6 @@ def _open_file(path):
         print(f"  Note: could not auto-open file ({e}) — open it manually.")
 
 
-# ── Page counter ─────────────────────────────────────────────────────────────
-
-def get_page_count(docx_path: Path) -> int:
-    """Return the page count of a .docx file.
-
-    Uses LibreOffice headless if available; otherwise estimates from line count.
-    """
-    if shutil.which("soffice"):
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                subprocess.run(
-                    ["soffice", "--headless", "--convert-to", "pdf",
-                     "--outdir", tmp, str(docx_path)],
-                    capture_output=True, timeout=30, check=True,
-                )
-                pdf_path = Path(tmp) / (docx_path.stem + ".pdf")
-                if pdf_path.exists():
-                    data = pdf_path.read_bytes()
-                    # /Count N in the PDF Pages tree holds total page count
-                    counts = re.findall(rb'/Count\s+(\d+)', data)
-                    if counts:
-                        return max(int(c) for c in counts)
-        except Exception:
-            pass
-
-    # Heuristic fallback: estimate lines at 11pt within 0.75" margins (~47 lines/page)
-    doc = Document(str(docx_path))
-    lines = sum(max(1, (len(p.text) + 89) // 90) for p in doc.paragraphs if p.text.strip())
-    return max(1, (lines + 46) // 47)
-
-
 # ── Credentials loader ────────────────────────────────────────────────────────
 
 def load_credentials() -> dict:
@@ -259,6 +199,8 @@ def detect_ats(url: str) -> str:
         return "workday"
     if "icims.com" in url:
         return "icims"
+    if "ashbyhq.com" in url:
+        return "ashbyhq"
     return "generic"
 
 
@@ -271,6 +213,8 @@ def load_ats_module(ats: str):
         from job_agent_support.ats.workday import fill_page, has_next_page, click_next, click_submit
     elif ats == "icims":
         from job_agent_support.ats.icims import fill_page, has_next_page, click_next, click_submit
+    elif ats == "ashbyhq":
+        from job_agent_support.ats.ashbyhq import fill_page, has_next_page, click_next, click_submit
     else:
         return None
     return {"fill_page": fill_page, "has_next_page": has_next_page,
@@ -416,74 +360,45 @@ Return only valid JSON, no markdown, no explanation."""
     return job_info
 
 
-# ── Step 2: Select components ─────────────────────────────────────────────────
+# ── Step 2: Select position tag ──────────────────────────────────────────────
 
-def select_components(job_info: dict, components: dict) -> dict:
+def select_tag(job_info: dict) -> dict:
+    """
+    Ask the LLM to pick the best position tag for this job from ALLOWED_TAGS,
+    plus 2 backup tags (used if the primary produces too-short documents).
+    Returns {"primary_tag": str, "backup_tags": [str, str]}.
+    """
     print(f"\n{'='*60}")
-    print("STEP 2 — Selecting relevant components")
+    print("STEP 2 — Selecting position tag")
     print(f"{'='*60}")
 
-    available_skill_keys = list(components.get("skills", {}).keys())
-    skill_descriptions = {
-        k: v.get("value", "")[:60]
-        for k, v in components.get("skills", {}).items()
+    tag_descriptions = {
+        "software_engineer": "General software / backend / full-stack engineering",
+        "app_dev":           "Mobile app development (iOS/Android)",
+        "web_dev":           "Web frontend / UI development",
+        "data_science":      "Data science, ML, analytics",
+        "it_cloud":          "Cloud infrastructure, AWS, DevOps",
+        "it_help_desk":      "IT support, help desk, technical support",
+        "it_network":        "Networking, network administration",
+        "admin":             "Administrative, clerical, office operations",
+        "events":            "Event coordination, recreation, program operations",
     }
-    all_project_titles = [p["title"] for p in components.get("projects", [])]
-    all_experience     = components.get("experience", [])
-    cover_para_info    = {
-        k: {"position": v.get("position", "body"), "tags": v.get("tags", [])}
-        for k, v in components.get("cover_letter_paragraphs", {}).items()
-    }
-
-    exp_options = {}
-    for exp in all_experience:
-        exp_options[exp["company"]] = {
-            "title":   exp["title"],
-            "dates":   exp["dates"],
-            "bullets": [b["text"] for b in exp.get("bullets", [])],
-        }
 
     prompt = f"""You are a resume tailoring assistant.
 
-JOB DESCRIPTION:
-Title: {job_info.get('job_title')}
-Company: {job_info.get('company')}
-Requirements: {job_info.get('requirements', '')}
-Responsibilities: {job_info.get('responsibilities', '')}
+Select the single best position tag for the job below, then 2 backup tags
+(2nd and 3rd best match) in case the primary produces too-short documents.
 
-YOUR TASK:
-1. Select which skills to include (choose from EXACTLY these keys, no others):
-   {json.dumps(skill_descriptions, indent=2)}
+Allowed tags and their meanings:
+{json.dumps(tag_descriptions, indent=2)}
 
-2. For each work experience below, select EXACTLY 3 bullet points to include.
-   You MUST include ALL companies — do not skip any.
-   If a company has fewer than 3 bullets available, include all of them.
-   {json.dumps(exp_options, indent=2)}
+Job Title       : {job_info.get('job_title')}
+Company         : {job_info.get('company')}
+Requirements    : {job_info.get('requirements', '')[:500]}
+Responsibilities: {job_info.get('responsibilities', '')[:500]}
 
-3. Select which projects to include (you MUST include all of them):
-   {all_project_titles}
-
-4. Select cover letter paragraph keys for one complete cover letter. Rules:
-   - All five selected keys MUST share the same cover letter type prefix (e.g. all start with "it_cloud_")
-   - Choose the type prefix whose tags best match the job requirements
-   - Select the opening, body_1, body_2, body_3, and closing from that same type
-   - The result must be exactly 5 keys in this order: opening, body_1, body_2, body_3, closing
-   Available paragraphs (key → position, tags):
-   {json.dumps(cover_para_info, indent=2)}
-
-5. List 5-10 keywords from the job description to naturally mirror.
-
-6. List anything the job requires that is NOT available in the skills/experience above.
-
-Return ONLY a JSON object with these exact keys:
-- selected_skills: list of skill key names (from the available list only)
-- selected_experience: list of objects with "company", "title", "dates", "selected_bullets" (list of bullet text strings)
-- selected_projects: list of all project titles
-- selected_cover_paragraphs: list of paragraph key names
-- keywords_to_mirror: list of keywords
-- flagged_fields: list of missing requirements
-
-Return only valid JSON, no markdown."""
+Return ONLY valid JSON, no markdown:
+{{"primary_tag": "<tag>", "backup_tags": ["<tag2>", "<tag3>"]}}"""
 
     response = ollama.chat(
         model=CHAT_MODEL,
@@ -493,443 +408,34 @@ Return only valid JSON, no markdown."""
     raw = _strip_llm_raw(response["message"]["content"])
 
     try:
-        selected = json.loads(raw)
+        result = json.loads(raw)
     except json.JSONDecodeError:
-        print("  WARNING: Could not parse LLM selection — using all components as fallback")
-        selected = {
-            "selected_skills": available_skill_keys,
-            "selected_experience": [
-                {
-                    "company":          e["company"],
-                    "title":            e["title"],
-                    "dates":            e["dates"],
-                    "selected_bullets": [b["text"] for b in e.get("bullets", [])[:3]],
-                }
-                for e in all_experience
-            ],
-            "selected_projects":         all_project_titles,
-            "selected_cover_paragraphs": ["it_help_desk_opening", "it_help_desk_body_1", "it_help_desk_body_2", "it_help_desk_body_3", "it_help_desk_closing"],
-            "keywords_to_mirror":        [],
-            "flagged_fields":            [],
-        }
+        result = {"primary_tag": "software_engineer", "backup_tags": ["it_help_desk", "admin"]}
 
-    # Discard LLM-hallucinated companies — only keep exact matches from the library
-    valid_companies = set(exp_options.keys())
-    selected["selected_experience"] = [
-        e for e in selected.get("selected_experience", [])
-        if e.get("company") in valid_companies
-    ]
+    primary = result.get("primary_tag", "")
+    if not validate_tag(primary):
+        primary = "software_engineer"
+    backups = [t for t in result.get("backup_tags", [])
+               if validate_tag(t) and t != primary][:2]
 
-    # Safety net: ensure ALL experience entries are always included
-    selected_companies = {e["company"] for e in selected.get("selected_experience", [])}
-    for exp in all_experience:
-        if exp["company"] not in selected_companies:
-            selected.setdefault("selected_experience", []).append({
-                "company":          exp["company"],
-                "title":            exp["title"],
-                "dates":            exp["dates"],
-                "selected_bullets": [b["text"] for b in exp.get("bullets", [])[:3]],
-            })
-
-    # Replace any LLM-hallucinated bullets with real ones from the library,
-    # then pad to 3 bullets if fewer were selected
-    exp_bullet_lookup = {e["company"]: e for e in all_experience}
-    for sel_exp in selected["selected_experience"]:
-        company      = sel_exp["company"]
-        real_bullets = [b["text"] for b in exp_bullet_lookup.get(company, {}).get("bullets", [])]
-        real_set     = set(real_bullets)
-        # Keep only bullets that exist verbatim in the library
-        valid_bullets = [b for b in sel_exp.get("selected_bullets", []) if b in real_set]
-        # Pad to 3 with remaining real bullets not already chosen
-        for b in real_bullets:
-            if len(valid_bullets) >= 3:
-                break
-            if b not in valid_bullets:
-                valid_bullets.append(b)
-        sel_exp["selected_bullets"] = valid_bullets
-
-    selected_proj_titles = set(selected.get("selected_projects", []))
-    for proj in components.get("projects", []):
-        if proj["title"] not in selected_proj_titles:
-            selected.setdefault("selected_projects", []).append(proj["title"])
-
-    valid_skills = [k for k in selected.get("selected_skills", [])
-                    if k in available_skill_keys]
-    selected["selected_skills"] = valid_skills if valid_skills else available_skill_keys[:4]
-
-    print(f"\n  Skills selected     : {selected.get('selected_skills')}")
-    print(f"  Experience included : {[e['company'] for e in selected.get('selected_experience', [])]}")
-    print(f"  Projects included   : {selected.get('selected_projects')}")
-    print(f"  Cover paragraphs    : {selected.get('selected_cover_paragraphs')}")
-    if selected.get("flagged_fields"):
-        print(f"\n  ⚠️  FLAGGED (not in library): {selected['flagged_fields']}")
-
-    return selected
+    print(f"\n  Primary tag : {primary}")
+    print(f"  Backup tags : {backups}")
+    return {"primary_tag": primary, "backup_tags": backups}
 
 
 # ── Step 3: Generate documents ────────────────────────────────────────────────
-
-def _add_section_header(doc, text: str):
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(12)
-    p.paragraph_format.space_after  = Pt(2)
-    run = p.add_run(text)
-    run.bold = True
-    run.underline = True
-    run.font.size = Pt(12)
-
-
-def _add_bullet(doc, text: str):
-    p = doc.add_paragraph(style='List Bullet')
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after  = Pt(1)
-    p.add_run(text).font.size = Pt(11)
-
-
-_MONTHS = {
-    "january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
-    "july":7,"august":8,"september":9,"october":10,"november":11,"december":12,
-}
-
-def _exp_start_date(exp: dict) -> tuple[int, int]:
-    """Return (year, month) parsed from the start half of a dates string for sorting."""
-    dates = exp.get("dates", "")
-    start = dates.split("–")[0].split("-")[0].strip().lower()
-    parts = start.split()
-    try:
-        month = _MONTHS.get(parts[0], 0)
-        year  = int(parts[1])
-        return (year, month)
-    except (IndexError, ValueError):
-        return (0, 0)
-
-
-def build_resume_docx(job_info: dict, selected: dict,
-                      components: dict, output_path: Path):
-    doc = Document()
-
-    for section in doc.sections:
-        section.top_margin    = Inches(0.75)
-        section.bottom_margin = Inches(0.75)
-        section.left_margin   = Inches(0.75)
-        section.right_margin  = Inches(0.75)
-
-    p_info = components["personal"]
-
-    name_p = doc.add_paragraph()
-    name_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    name_p.paragraph_format.space_before = Pt(0)
-    name_p.paragraph_format.space_after  = Pt(2)
-    run = name_p.add_run(p_info["name"])
-    run.bold = True
-    run.font.size = Pt(16)
-
-    contact_p = doc.add_paragraph()
-    contact_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    contact_p.paragraph_format.space_before = Pt(0)
-    contact_p.paragraph_format.space_after  = Pt(1)
-    contact_p.add_run(
-        f"{p_info['location']} | {p_info['phone']} | {p_info['email']}"
-    ).font.size = Pt(10)
-
-    links_p = doc.add_paragraph()
-    links_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    links_p.paragraph_format.space_before = Pt(0)
-    links_p.paragraph_format.space_after  = Pt(10)
-    _add_hyperlink(links_p, p_info["portfolio"], p_info["portfolio"], size_pt=10)
-    links_p.add_run(" | ").font.size = Pt(10)
-    _add_hyperlink(links_p, p_info["linkedin"],  p_info["linkedin"],  size_pt=10)
-
-    _add_section_header(doc, "Skills & Qualifications:")
-    skills    = components.get("skills", {})
-    label_map = {
-        "coding_languages":            "Coding Languages",
-        "software_engineer_utilities": "Software & Utilities",
-        "software_utilities":          "Software & Utilities",
-        "backend":                     "Backend",
-        "networking":                  "Networking",
-        "soft_skills":                 "Soft Skills",
-        "math_courses":                "Math Courses",
-        "program_event_operations":    "Program & Event Operations",
-        "administrative_facility":     "Administrative & Facility Management",
-        "health_safety":               "Health, Safety & Compliance",
-        "technology_data":             "Technology & Data Tracking",
-        "interpersonal_leadership":    "Interpersonal & Leadership Skills",
-    }
-    for key in selected.get("selected_skills", []):
-        if key in skills:
-            label = label_map.get(key, key.replace("_", " ").title())
-            p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after  = Pt(1)
-            bold_run = p.add_run(label)
-            bold_run.bold = True
-            bold_run.font.size = Pt(11)
-            p.add_run(f": {skills[key]['value']}").font.size = Pt(11)
-
-    _add_section_header(doc, "Certifications:")
-    for cert in components.get("certifications", []):
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after  = Pt(1)
-        bold_run = p.add_run(cert["name"])
-        bold_run.bold = True
-        bold_run.font.size = Pt(11)
-        if cert.get("expires"):
-            detail = f". Issued by: {cert['issuer']}. Expires: {cert['expires']}."
-        else:
-            detail = f" ({cert.get('status', 'In Progress')}). Expected: {cert.get('expected', '')}."
-        p.add_run(detail).font.size = Pt(11)
-
-    _add_section_header(doc, "Projects:")
-    proj_lookup = {proj["title"]: proj for proj in components.get("projects", [])}
-    for proj_title in selected.get("selected_projects", []):
-        if proj_title not in proj_lookup:
-            continue
-        proj = proj_lookup[proj_title]
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(8)
-        p.paragraph_format.space_after  = Pt(1)
-        bold_run = p.add_run(proj["role"])
-        bold_run.bold = True
-        bold_run.font.size = Pt(11)
-        p.add_run(f". {proj['title']}. {proj['dates']}.").font.size = Pt(11)
-        for b in proj.get("bullets", []):
-            _add_bullet(doc, b["text"])
-        for link_url in (proj.get("links") or {}).values():
-            lp = doc.add_paragraph()
-            lp.paragraph_format.left_indent  = Inches(0.25)
-            lp.paragraph_format.space_before = Pt(0)
-            lp.paragraph_format.space_after  = Pt(1)
-            _add_hyperlink(lp, link_url, link_url, size_pt=10)
-
-    _add_section_header(doc, "Education:")
-    for edu in components.get("education", []):
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(8)
-        p.paragraph_format.space_after  = Pt(0)
-        run = p.add_run(edu["institution"])
-        run.bold = True
-        run.font.size = Pt(11)
-        p2 = doc.add_paragraph()
-        p2.paragraph_format.space_before = Pt(0)
-        p2.paragraph_format.space_after  = Pt(0)
-        r2 = p2.add_run(edu["dates"])
-        r2.italic = True
-        r2.font.size = Pt(11)
-        p3 = doc.add_paragraph()
-        p3.paragraph_format.space_before = Pt(0)
-        p3.paragraph_format.space_after  = Pt(1)
-        r3 = p3.add_run(edu["degree"])
-        r3.italic = True
-        r3.font.size = Pt(11)
-        if edu.get("courses"):
-            kcp = doc.add_paragraph()
-            kcp.paragraph_format.space_before = Pt(0)
-            kcp.paragraph_format.space_after  = Pt(1)
-            kcp.add_run("Key Courses:").font.size = Pt(11)
-            for course in edu["courses"]:
-                if " - http" in course:
-                    name, url = course.split(" - ", 1)
-                    bp = doc.add_paragraph(style='List Bullet')
-                    bp.paragraph_format.space_before = Pt(0)
-                    bp.paragraph_format.space_after  = Pt(1)
-                    bp.add_run(name + " — ").font.size = Pt(11)
-                    _add_hyperlink(bp, url, url, size_pt=11)
-                else:
-                    _add_bullet(doc, course)
-
-    RELATED_TAGS = {"it", "tech", "software_engineer", "networking"}
-    exp_lookup   = {e["company"]: e for e in components.get("experience", [])}
-
-    def _is_related(company: str) -> bool:
-        for b in exp_lookup.get(company, {}).get("bullets", []):
-            if set(b.get("tags", [])) & RELATED_TAGS:
-                return True
-        return False
-
-    def _write_exp_block(sel_exp: dict):
-        p1 = doc.add_paragraph()
-        p1.paragraph_format.space_before = Pt(8)
-        p1.paragraph_format.space_after  = Pt(0)
-        r1 = p1.add_run(sel_exp["title"])
-        r1.bold = True
-        r1.font.size = Pt(11)
-        p2 = doc.add_paragraph()
-        p2.paragraph_format.space_before = Pt(0)
-        p2.paragraph_format.space_after  = Pt(0)
-        r2 = p2.add_run(sel_exp["company"])
-        r2.bold = True
-        r2.font.size = Pt(11)
-        p3 = doc.add_paragraph()
-        p3.paragraph_format.space_before = Pt(0)
-        p3.paragraph_format.space_after  = Pt(1)
-        p3.add_run(sel_exp["dates"]).font.size = Pt(11)
-        for bullet in sel_exp.get("selected_bullets", []):
-            _add_bullet(doc, bullet)
-
-    # Deduplicate by company name AND job title (preserve first occurrence of each).
-    # Checking title catches cases where the LLM varies the company name but keeps
-    # the real title (e.g. "Buchanan Street Elementary" vs "...School", both "Technology Aide").
-    seen_companies: set[str] = set()
-    seen_titles:    set[str] = set()
-    unique_exp: list[dict] = []
-    for e in selected.get("selected_experience", []):
-        company = e["company"]
-        title   = e.get("title", "")
-        if company in seen_companies or (title and title in seen_titles):
-            continue
-        seen_companies.add(company)
-        if title:
-            seen_titles.add(title)
-        # Final bullet guard: keep only verbatim library bullets, pad to 3 if needed.
-        # This ensures nothing hallucinated ever reaches the document.
-        real_bullets = [b["text"] for b in exp_lookup.get(company, {}).get("bullets", [])]
-        real_set     = set(real_bullets)
-        valid = [b for b in e.get("selected_bullets", []) if b in real_set]
-        for b in real_bullets:
-            if len(valid) >= 3:
-                break
-            if b not in valid:
-                valid.append(b)
-        e["selected_bullets"] = valid
-        unique_exp.append(e)
-
-    related_exp    = [e for e in unique_exp if _is_related(e["company"])]
-    additional_exp = [e for e in unique_exp if not _is_related(e["company"])]
-
-    additional_exp.sort(key=_exp_start_date, reverse=True)
-
-    if related_exp:
-        _add_section_header(doc, "Related Experience")
-        for sel_exp in related_exp:
-            _write_exp_block(sel_exp)
-
-    if additional_exp:
-        _add_section_header(doc, "Additional Experience:")
-        for sel_exp in additional_exp[:2]:
-            _write_exp_block(sel_exp)
-
-    doc.save(str(output_path))
-
-
-def get_cover_letter_paragraphs(selected: dict, components: dict,
-                                job_info: dict) -> list[str]:
-    paras = components.get("cover_letter_paragraphs", {})
-    keys  = [k for k in selected.get("selected_cover_paragraphs", []) if k in paras]
-
-    position_order = {"opening": 0, "body_1": 1, "body_2": 2, "body_3": 3, "closing": 4}
-    keys.sort(key=lambda k: position_order.get(paras[k].get("position", "body_1"), 1))
-
-    replacements = {
-        "[date]":         datetime.now().strftime("%B %d, %Y"),
-        "[job_title]":    job_info.get("job_title", ""),
-        "[company_name]": job_info.get("company", ""),
-        "[location]":     job_info.get("address", "") or "",
-    }
-
-    result = []
-    for k in keys:
-        text = paras[k]["text"].strip()
-        for placeholder, value in replacements.items():
-            text = text.replace(placeholder, value)
-        # Collapse newlines and extra whitespace from YAML block scalars into single spaces
-        text = " ".join(text.split())
-        result.append(text)
-    return result
-
-
-def build_cover_letter_docx(job_info: dict, selected: dict,
-                            components: dict, output_path: Path,
-                            paragraphs: list[str]):
-    doc = Document()
-
-    for section in doc.sections:
-        section.top_margin    = Inches(1.0)
-        section.bottom_margin = Inches(1.0)
-        section.left_margin   = Inches(1.0)
-        section.right_margin  = Inches(1.0)
-
-    p_info = components["personal"]
-
-    def _p(text: str, space_after: float = 12):
-        para = doc.add_paragraph(text)
-        para.paragraph_format.space_before = Pt(0)
-        para.paragraph_format.space_after  = Pt(space_after)
-        if para.runs:
-            para.runs[0].font.size = Pt(12)
-        return para
-
-    _p(datetime.now().strftime("%B %d, %Y"))
-    _p("Dear Hiring Manager:")
-
-    for para in paragraphs:
-        _p(para)
-
-    _p("Sincerely,", space_after=4)
-    _p(p_info["name"], space_after=0)
-
-    doc.save(str(output_path))
-
 
 def generate_documents(job_info: dict, selected: dict, components: dict) -> dict:
     print(f"\n{'='*60}")
     print("STEP 3 — Generating tailored documents")
     print(f"{'='*60}")
-
-    company_clean = re.sub(r'[^\w\s-]', '', job_info.get("company", "Company"))
-    company_clean = company_clean.strip().replace(" ", "_")
-    date_str      = datetime.now().strftime("%Y-%m-%d")
-
-    resume_path = OUTPUT_DIR / f"resume_{company_clean}_{date_str}.docx"
-    cover_path  = OUTPUT_DIR / f"cover_letter_{company_clean}_{date_str}.docx"
-
-    build_resume_docx(job_info, selected, components, resume_path)
-
-    # Trim experience entries one at a time until the resume fits in 2 pages.
-    # Non-related (additional) experience is removed first, then related entries
-    # if still over the limit.
-    exp_lookup = {e["company"]: e for e in components.get("experience", [])}
-    _rel_tags  = {"it", "tech", "software_engineer", "networking"}
-
-    def _exp_is_related(company: str) -> bool:
-        for b in exp_lookup.get(company, {}).get("bullets", []):
-            if set(b.get("tags", [])) & _rel_tags:
-                return True
-        return False
-
-    trimmed = copy.deepcopy(selected)
-    for _ in range(len(selected.get("selected_experience", [])) + 1):
-        pages = get_page_count(resume_path)
-        if pages <= 2:
-            break
-        exp_list    = trimmed["selected_experience"]
-        non_related = [i for i, e in enumerate(exp_list) if not _exp_is_related(e["company"])]
-        if non_related:
-            removed = exp_list.pop(non_related[-1])
-        elif exp_list:
-            removed = exp_list.pop()
-        else:
-            print("  ⚠️  Resume exceeds 2 pages but no experience entries remain to remove.")
-            break
-        print(f"  ✂️  Resume is {pages} pages — removing '{removed['company']}' to fit 2 pages.")
-        build_resume_docx(job_info, trimmed, components, resume_path)
-
-    cover_paragraphs = get_cover_letter_paragraphs(selected, components, job_info)
-    build_cover_letter_docx(job_info, selected, components, cover_path, cover_paragraphs)
-
-    print(f"\n  Resume saved       : {resume_path}")
-    print(f"  Cover letter saved : {cover_path}")
-
-    if selected.get("flagged_fields"):
-        print(f"\n  ⚠️  Missing from your library — left blank:")
-        for f in selected["flagged_fields"]:
-            print(f"      - {f}")
-
-    return {
-        "resume_path":       str(resume_path),
-        "cover_letter_path": str(cover_path),
-    }
+    return _build_documents(
+        primary_tag  = selected["primary_tag"],
+        job_info     = job_info,
+        components   = components,
+        output_dir   = OUTPUT_DIR,
+        backup_tags  = selected.get("backup_tags", []),
+    )
 
 
 # ── Apply-URL resolver (follows intermediate company career pages) ─────────────
@@ -937,8 +443,8 @@ def generate_documents(job_info: dict, selected: dict, components: dict) -> dict
 def resolve_apply_url(url: str, page) -> str:
     """
     Navigate to url. If the page is an intermediate company career site
-    (has a visible 'Apply Now' link but no application form fields), follow
-    the link and return the final ATS URL. Otherwise return url unchanged.
+    (has a visible Apply Now button but no application form fields), click it
+    and return the URL of the resulting page. Otherwise return url unchanged.
     """
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -946,7 +452,7 @@ def resolve_apply_url(url: str, page) -> str:
     except Exception:
         return url
 
-    # Check whether the page already has form fields (real application form)
+    # Already on a real application form — nothing to resolve
     has_form = page.evaluate("""() => {
         const fields = document.querySelectorAll('input:not([type=hidden]), textarea, select');
         return fields.length > 0;
@@ -954,23 +460,29 @@ def resolve_apply_url(url: str, page) -> str:
     if has_form:
         return url
 
-    # No form — look for a visible "Apply Now" link to the real ATS
+    # No form fields — look for an Apply Now button and click it
     selectors = [
         'a.button.job-apply',
         'a:has-text("Apply Now")',
         'a:has-text("APPLY NOW")',
         'a:has-text("Apply for this job")',
         'a:has-text("Apply for Job")',
+        'button:has-text("Apply Now")',
+        'button:has-text("APPLY NOW")',
+        'button:has-text("Apply for this job")',
+        'button:has-text("Apply for Job")',
     ]
     for sel in selectors:
         try:
             el = page.query_selector(sel)
             if el and el.is_visible():
-                href = el.get_attribute("href")
-                if href and href != url:
-                    print(f"  ↪  Intermediate page detected — following Apply Now:")
-                    print(f"     {href}")
-                    return href
+                print(f"  ↪  Intermediate page detected — clicking Apply Now...")
+                el.click()
+                page.wait_for_load_state("domcontentloaded", timeout=15000)
+                page.wait_for_timeout(2000)
+                final_url = page.url
+                print(f"     Landed on: {final_url}")
+                return final_url
         except Exception:
             pass
     return url
@@ -1168,6 +680,7 @@ def present_summary(job_info: dict, docs: dict, fill_result: dict, selected: dic
     print(f"  Job Title   : {job_info.get('job_title')}")
     print(f"  Company     : {job_info.get('company')}")
     print(f"  URL         : {job_info.get('url')}")
+    print(f"  Tag used    : {selected.get('primary_tag')} (backups: {selected.get('backup_tags', [])})")
     print(f"\n  Resume      : {docs['resume_path']}")
     print(f"  Cover Letter: {docs['cover_letter_path']}")
     print(f"\n  Fields filled  : {len(fill_result.get('filled_fields', []))}")
@@ -1246,14 +759,24 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
         print("   Generating tailored documents for your reference...")
         print("=" * 60)
 
-        selected = select_components(job_info, components)
+        selected = select_tag(job_info)
         docs     = generate_documents(job_info, selected, components)
 
         print(f"\n  📄 Opening documents for reference...")
         _open_file(docs["resume_path"])
         _open_file(docs["cover_letter_path"])
 
-        answer = input("\n  Did you apply to this job? [y/n]: ").strip().lower()
+        print()
+        print("  Did you apply to this job?")
+        print("    [y] Yes — log as applied")
+        print("    [n] No  — save to Apply Later")
+        print("    [s] Skip — don't log anything")
+        while True:
+            answer = input("  Choice [y/n/s]: ").strip().lower()
+            if answer in ("y", "n", "s"):
+                break
+            print("  Please enter y, n, or s.")
+
         if answer == "y":
             log_application(DB_PATH, {
                 "job_title":    job_info.get("job_title"),
@@ -1269,13 +792,27 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
             log_action("easy_apply_confirmed",
                        job_info.get("job_title", ""), job_info.get("company", ""), "applied")
             print("  ✅ Application logged.")
+        elif answer == "n":
+            log_apply_later(DB_PATH, {
+                "job_title":  job_info.get("job_title"),
+                "company":    job_info.get("company"),
+                "job_board":  source_board,
+                "date_saved": datetime.now().strftime("%Y-%m-%d"),
+                "pay":        job_info.get("pay", "Not listed"),
+                "address":    job_info.get("address"),
+                "apply_url":  easy_url,
+                "resume_path": docs.get("resume_path"),
+            })
+            log_action("easy_apply_later",
+                       job_info.get("job_title", ""), job_info.get("company", ""), "apply_later")
+            print("  📌 Saved to Apply Later.")
         return
 
     # ── Full pipeline path ────────────────────────────────────────────────────
 
     # ── STEP 2 ────────────────────────────────────────────────────────────────
-    selected = select_components(job_info, components)
-    log_action("selected_components",
+    selected = select_tag(job_info)
+    log_action("selected_tag",
                job_info.get("job_title", ""), job_info.get("company", ""), "success")
 
     # ── STEP 3 ────────────────────────────────────────────────────────────────
@@ -1412,10 +949,16 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
             {
                 "y": "Submit the application now",
                 "m": "I already submitted manually — log and finish",
+                "r": "Re-inspect and re-fill this page (page was slow to load)",
                 "n": "Don't submit — keep documents only",
             },
             "Review any flagged items above before submitting.",
         )
+
+        if submit_choice == "r":
+            print("\n  Re-inspecting page...")
+            page_num -= 1
+            continue
 
         if submit_choice == "n":
             log_action("final_submission",

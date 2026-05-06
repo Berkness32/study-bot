@@ -7,45 +7,29 @@ Native <select> / radio fallback is kept for older Greenhouse form variants.
 """
 
 from pathlib import Path
+
+import yaml
 from playwright.sync_api import Page
 
+_ROOT              = Path(__file__).parent.parent.parent
+_ATS_DEFAULTS_PATH = _ROOT / "data/job-apps/ats_defaults.yaml"
 
-# ── Text field map ─────────────────────────────────────────────────────────────
-FIELD_MAP = {
-    "first_name":   "first_name",
-    "last_name":    "last_name",
-    "email":        "email",
-    "phone":        "phone",
-    "resume":       "resume",
-    "cover_letter": "cover_letter",
-    "website":      "portfolio",
-    "linkedin":     "linkedin",
-    "location":     "location",
-}
 
-# ── Compliance question answers (matched by label text substring) ───────────────
-# Keys are lowercase substrings; values are the option text to select.
-_COMPLIANCE_ANSWERS = {
-    "legally authorized to work in the united states":  "Yes",
-    "authorized to work in the united states":          "Yes",
-    "require sponsorship for employment visa":          "No",
-    "will you now, or in the future, require":         "No",
-    "immigration related support or sponsorship":       "No",
-    "are you 18 years of age":                         "Yes",
-    "how did you hear":                                "LinkedIn",
-    "how did you find":                                "LinkedIn",
-    "have you ever worked for":                        "No",
-}
+def _load_defaults(ats_key: str) -> dict:
+    try:
+        with open(_ATS_DEFAULTS_PATH, encoding="utf-8") as f:
+            return (yaml.safe_load(f) or {}).get(ats_key, {})
+    except Exception:
+        return {}
 
-# ── EEOC defaults ──────────────────────────────────────────────────────────────
-# Override any of these in components.yaml under an `eeoc:` key.
-_EEOC_DEFAULTS = {
-    "gender":             "Decline To Self Identify",
-    "hispanic_ethnicity": "Decline To Self Identify",
-    "race":               "Decline To Self Identify",
-    "veteran_status":     "I don't wish to answer",
-    "disability_status":  "I do not want to answer",
-}
+
+_DEFAULTS = _load_defaults("greenhouse")
+
+# Loaded from data/job-apps/ats_defaults.yaml
+FIELD_MAP             = _DEFAULTS.get("field_map",            {})
+_COMPLIANCE_ANSWERS   = _DEFAULTS.get("compliance_answers",   {})
+_EEOC_DEFAULTS        = _DEFAULTS.get("eeoc_defaults",        {})
+_EEOC_COMPONENTS_MAP  = _DEFAULTS.get("eeoc_components_map",  {})
 
 
 # ── React Select helper ────────────────────────────────────────────────────────
@@ -187,7 +171,12 @@ def _fill_compliance_questions(page: Page, filled_summary: list, flagged: list) 
 def _fill_eeoc(page: Page, eeoc_prefs: dict,
                filled_summary: list, flagged: list) -> None:
     """Fill EEOC self-identification React Select dropdowns."""
-    answers = {**_EEOC_DEFAULTS, **eeoc_prefs}
+    # Start with fallback defaults, then override using the components.yaml eeoc key mapping.
+    # _EEOC_COMPONENTS_MAP maps Greenhouse field ID → components.yaml eeoc key.
+    answers = dict(_EEOC_DEFAULTS)
+    for field_id, comp_key in _EEOC_COMPONENTS_MAP.items():
+        if comp_key in eeoc_prefs:
+            answers[field_id] = eeoc_prefs[comp_key]
     for field_id, desired_text in answers.items():
         # Check whether this field exists on the current page
         control = page.query_selector(

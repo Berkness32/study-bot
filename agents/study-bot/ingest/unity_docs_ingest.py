@@ -19,15 +19,18 @@ import psutil
 import re
 import requests
 from datetime import datetime
+from pathlib import Path
+
+_ROOT = Path(__file__).parent.parent
 
 # ─────────────────────────────────────────────
 # LOGGING SETUP
 # ─────────────────────────────────────────────
 
-os.makedirs("logs", exist_ok=True)
+os.makedirs(_ROOT / "logs", exist_ok=True)
 
 _log_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-_log_filename = f"logs/unity_ingest_log_{_log_timestamp}.log"
+_log_filename = str(_ROOT / f"logs/unity_ingest_log_{_log_timestamp}.log")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -149,7 +152,7 @@ UNITY_VERSION_OVERRIDE = "6000.2"
 EMBED_MODEL = "hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M"
 
 
-RAW_OUTPUT_FILE = "unity_raw.jsonl"  # stays in project root, matches your existing file
+RAW_OUTPUT_FILE = str(_ROOT / "unity_raw.jsonl")
 
 class UnityDocsSpider(scrapy.Spider):
     name = "unity_docs"

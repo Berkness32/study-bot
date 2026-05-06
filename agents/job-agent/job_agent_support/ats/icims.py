@@ -7,40 +7,28 @@ Fields are identified by label text or standard name/id attributes.
 """
 
 from pathlib import Path
+
+import yaml
 from playwright.sync_api import Page
 
-# Maps common iCIMS input name / id patterns → personal component key
-FIELD_MAP = {
-    # Personal info page
-    "firstname":          "first_name",
-    "first_name":         "first_name",
-    "lastname":           "last_name",
-    "last_name":          "last_name",
-    "email":              "email",
-    "email_address":      "email",
-    "phone":              "phone",
-    "phonenumber":        "phone",
-    "phone_number":       "phone",
-    "city":               "city",
-    "address":            "location",
-    # Profile / social links
-    "linkedin":           "linkedin",
-    "linkedinurl":        "linkedin",
-    "linkedin_url":       "linkedin",
-    "website":            "portfolio",
-    "portfoliourl":       "portfolio",
-}
+_ROOT              = Path(__file__).parent.parent.parent
+_ATS_DEFAULTS_PATH = _ROOT / "data/job-apps/ats_defaults.yaml"
 
-# iCIMS wraps inputs inside labeled fieldsets; we also search by label text
-LABEL_HINTS = {
-    "first name":  "first_name",
-    "last name":   "last_name",
-    "email":       "email",
-    "phone":       "phone",
-    "city":        "city",
-    "linkedin":    "linkedin",
-    "website":     "portfolio",
-}
+
+def _load_defaults(ats_key: str) -> dict:
+    try:
+        with open(_ATS_DEFAULTS_PATH, encoding="utf-8") as f:
+            return (yaml.safe_load(f) or {}).get(ats_key, {})
+    except Exception:
+        return {}
+
+
+_DEFAULTS = _load_defaults("icims")
+
+# Loaded from data/job-apps/ats_defaults.yaml
+FIELD_MAP       = _DEFAULTS.get("field_map",      {})
+LABEL_HINTS     = _DEFAULTS.get("label_hints",    {})
+_EEOC_LABEL_MAP = _DEFAULTS.get("eeoc_label_map", {})
 
 
 def fill_page(page: Page, job_info: dict, docs: dict, components: dict) -> dict:
@@ -89,8 +77,58 @@ def fill_page(page: Page, job_info: dict, docs: dict, components: dict) -> dict:
     # ── Cover letter upload (iCIMS often has a second upload slot) ────────────
     _upload_file(page, "cover_letter", docs.get("cover_letter_path"), filled_summary, flagged)
 
+    # ── EEOC self-identification ────────────────────────────────────────────────
+    _fill_eeoc(page, components.get("eeoc", {}), filled_summary, flagged)
+
     print(f"  Filled {len(filled_summary)} field(s), {len(flagged)} flagged.")
     return {"filled_fields": filled_summary, "flagged": flagged}
+
+
+def _fill_eeoc(page: Page, eeoc_answers: dict,
+               filled_summary: list, flagged: list) -> None:
+    """Fill EEOC self-identification fields by scanning labels for keyword matches."""
+    for label_el in page.query_selector_all("label"):
+        try:
+            if not label_el.is_visible():
+                continue
+            label_text = label_el.inner_text().strip().lower()
+
+            answer = None
+            for keyword, comp_key in _EEOC_LABEL_MAP.items():
+                if keyword in label_text:
+                    answer = eeoc_answers.get(comp_key, "")
+                    break
+            if not answer:
+                continue
+
+            lbl_for = label_el.get_attribute("for") or ""
+
+            # Native <select>
+            sel_el = page.query_selector(f'select[id="{lbl_for}"]') if lbl_for else None
+            if sel_el and sel_el.is_visible():
+                for opt in sel_el.query_selector_all("option"):
+                    if answer.lower() in (opt.inner_text() or "").lower():
+                        sel_el.select_option(value=opt.get_attribute("value") or "")
+                        filled_summary.append({"field": label_text[:40], "value": answer})
+                        break
+                continue
+
+            # Radio group in parent container
+            parent = label_el.evaluate_handle(
+                "el => el.closest('fieldset') || el.closest('div') || el.parentElement"
+            ).as_element()
+            if parent:
+                for radio in parent.query_selector_all('input[type="radio"]'):
+                    rid = radio.get_attribute("id") or ""
+                    rl  = page.query_selector(f'label[for="{rid}"]')
+                    if rl and answer.lower() in (rl.inner_text() or "").lower():
+                        if not radio.is_checked():
+                            radio.click()
+                            page.wait_for_timeout(200)
+                        filled_summary.append({"field": label_text[:40], "value": answer})
+                        break
+        except Exception as e:
+            flagged.append({"field": "eeoc", "error": str(e)})
 
 
 def _fill_by_labels(page: Page, field_data: dict,

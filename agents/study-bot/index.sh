@@ -1,6 +1,9 @@
 #!/bin/bash
 # Study Bot — Ingest selector
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 echo ""
 echo "Study Bot — Ingest"
 echo "─────────────────────────────"
@@ -35,7 +38,7 @@ echo ""
 echo "Selected: $selected"
 echo ""
 
-source .venv/bin/activate
+source "$SCRIPT_DIR/../../.venv/bin/activate"
 
 case "$selected" in
 

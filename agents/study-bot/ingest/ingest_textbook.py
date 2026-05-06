@@ -19,9 +19,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+_ROOT = Path(__file__).parent.parent
+
 # ── Logging setup ─────────────────────────────────────────────────────────────
-os.makedirs("logs", exist_ok=True)
-log_file = f"logs/ingest_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+os.makedirs(_ROOT / "logs", exist_ok=True)
+log_file = str(_ROOT / f"logs/ingest_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -35,7 +37,7 @@ logging.basicConfig(
 log = logging.getLogger("ingest_textbook")
 
 # ── Config ────────────────────────────────────────────────────────────────────
-CHROMA_PATH    = "chroma_db"
+CHROMA_PATH    = str(_ROOT / "chroma_db")
 EMBED_MODEL    = "hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M"   # pulled via: ollama pull hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M
 CHUNK_SIZE     = 800
 CHUNK_OVERLAP  = 100

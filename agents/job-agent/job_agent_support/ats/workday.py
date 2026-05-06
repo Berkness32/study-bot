@@ -28,26 +28,21 @@ from playwright.sync_api import Page
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
-_LOG_DIR         = Path("logs/job_agents_logs")
-_COMPONENTS_PATH = Path("data/job-apps/workday_components.yaml")
-_CREDS_PATH      = Path("job_agent_support/credentials.yaml")
+_ROOT            = Path(__file__).parent.parent.parent
+_LOG_DIR         = _ROOT / "logs/job_agents_logs"
+_COMPONENTS_PATH = _ROOT / "data/job-apps/workday_components.yaml"
+_CREDS_PATH      = _ROOT / "job_agent_support/credentials.yaml"
 
 _LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-# ── Credentials ───────────────────────────────────────────────────────────────
-
-_WORKDAY_EMAIL    = "aaronberkness@gmail.com"
-_WORKDAY_PASSWORD = "Ucsb2020!"
-
 
 def _load_workday_creds() -> tuple[str, str]:
     try:
         with open(_CREDS_PATH, encoding="utf-8") as f:
             creds = yaml.safe_load(f)
         wd = creds.get("workday", {})
-        return wd.get("email", _WORKDAY_EMAIL), wd.get("password", _WORKDAY_PASSWORD)
+        return wd.get("email", ""), wd.get("password", "")
     except Exception:
-        return _WORKDAY_EMAIL, _WORKDAY_PASSWORD
+        return "", ""
 
 
 # ── Workday components loader ─────────────────────────────────────────────────
@@ -492,15 +487,40 @@ def _detect_page(page: Page) -> tuple[str, str]:
     return "", "unknown"
 
 
+# ── Page readiness helper ─────────────────────────────────────────────────────
+
+def _wait_for_workday_ready(page: Page, timeout: int = 20000) -> None:
+    """
+    Wait for Workday's React app to render a recognizable page structure.
+    Tries network-idle first, then polls for any known automation-id.
+    """
+    try:
+        page.wait_for_load_state("networkidle", timeout=timeout)
+    except Exception:
+        pass
+
+    known_ids = (
+        list(_PAGE_CONTAINERS.keys())
+        + ["createAccountSubmitButton", "signInSubmitButton",
+           "email", "adventureButton", "applyManually"]
+    )
+    selector = ", ".join(f'[data-automation-id="{aid}"]' for aid in known_ids)
+    try:
+        page.wait_for_selector(selector, state="visible", timeout=timeout)
+    except Exception:
+        pass  # timed out — proceed anyway and let _detect_page report what it finds
+
+
 # ── Main fill entry point ─────────────────────────────────────────────────────
 
 def fill_page(page: Page, job_info: dict, docs: dict, components: dict) -> dict:
     """Detect the current Workday wizard step and fill it appropriately."""
-    page.wait_for_timeout(1500)
+    # Wait for Workday's React app to fully render before querying anything
+    _wait_for_workday_ready(page)
 
     # Click the Apply button on the job listing page if present
     if _click_apply_button(page):
-        page.wait_for_timeout(1500)
+        _wait_for_workday_ready(page)
 
     # Handle the "Start Your Application" popup — always pick Apply Manually
     _handle_application_start_popup(page)
@@ -509,7 +529,7 @@ def fill_page(page: Page, job_info: dict, docs: dict, components: dict) -> dict:
     # Handle login / create-account page before doing anything else
     if _is_login_page(page) or _is_create_account_page(page):
         _do_login(page)
-        page.wait_for_timeout(2000)
+        _wait_for_workday_ready(page)
 
     container_id, page_key = _detect_page(page)
 

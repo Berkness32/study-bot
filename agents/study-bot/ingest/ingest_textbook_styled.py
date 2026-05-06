@@ -1,9 +1,10 @@
 """
 ingest_textbook_styled.py — Style-aware PDF chunker and ChromaDB ingester
-Primary target: data/textbooks/LinearAlgebra.pdf (Ron Larson, Elementary Linear Algebra)
+Primary target: data/textbooks/GameMath.pdf
+  (Van Verth & Bishop, Essential Mathematics for Games and Interactive Applications, 3rd ed.)
 
-Body font: 10pt. Chapter headings: 14pt BOLD. Section headings: 11.5pt+ BOLD/ITALIC.
-Default args are pre-set for LinearAlgebra — run with no flags to ingest it directly.
+Body font: 10pt.  Section headings: 12pt plain.  Chapter headings: ~32pt plain.
+Default args are pre-set for GameMath — run with no flags to ingest it directly.
 
 Differences from ingest_textbook.py:
   - Uses PyMuPDF (fitz) instead of pypdf for text extraction
@@ -13,14 +14,14 @@ Differences from ingest_textbook.py:
   - Everything else — chunking, overlap, embedding, ChromaDB, logging — is identical
 
 Usage:
-    # Ingest LinearAlgebra with defaults:
+    # Ingest GameMath with defaults:
     python ingest_textbook_styled.py
 
     # Override any defaults:
-    python ingest_textbook_styled.py --pdf data/textbooks/LinearAlgebra.pdf --collection linear_algebra
+    python ingest_textbook_styled.py --pdf data/textbooks/GameMath.pdf --collection game_math
 
     # Scan fonts before ingesting a new textbook:
-    python ingest_textbook_styled.py --scan --pdf data/textbooks/LinearAlgebra.pdf
+    python ingest_textbook_styled.py --scan --pdf data/textbooks/GameMath.pdf
 
     python ingest_textbook_styled.py --list
 
@@ -37,9 +38,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+_ROOT = Path(__file__).parent.parent
+
 # ── Logging setup ─────────────────────────────────────────────────────────────
-os.makedirs("logs", exist_ok=True)
-log_file = f"logs/ingest_styled_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+os.makedirs(_ROOT / "logs", exist_ok=True)
+log_file = str(_ROOT / f"logs/ingest_styled_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -53,7 +56,7 @@ logging.basicConfig(
 log = logging.getLogger("ingest_textbook_styled")
 
 # ── Config ────────────────────────────────────────────────────────────────────
-CHROMA_PATH   = "chroma_db"
+CHROMA_PATH   = str(_ROOT / "chroma_db")
 EMBED_MODEL   = "hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M"
 CHUNK_SIZE    = 800
 CHUNK_OVERLAP = 100
@@ -66,10 +69,12 @@ PAGE_BATCH    = 5
 
 # A span is treated as a heading candidate if its font size exceeds
 # body text size by at least this many points.
-HEADING_SIZE_DELTA = 2.5
+# GameMath: body=10pt, section headings=12pt → delta must be < 2.0
+HEADING_SIZE_DELTA = 1.5
 
 # If a span is bold or italic AND at least this size, it's a heading candidate
 # even if it isn't much larger than body text.
+# GameMath headings are plain (no bold/italic), so this is a fallback only.
 BOLD_ITALIC_MIN_SIZE = 11.5
 
 # Minimum character length for a heading — filters out single letters,
@@ -80,7 +85,8 @@ HEADING_MIN_CHARS = 6
 # that are styled for emphasis rather than as structural headings.
 HEADING_MAX_CHARS = 120
 
-HEADING_MIN_WORDS = 2
+# GameMath has single-word section headings like "Vectors", "Points", "Matrices"
+HEADING_MIN_WORDS = 1
 
 # PyMuPDF font flag bits
 FLAG_BOLD   = 2 ** 4   # 16
@@ -343,9 +349,9 @@ def chunk_text(text: str, start_page: int) -> list[dict]:
 
     try:
         KEYWORD_RE = re.compile(
-            r"^(Definition|Example\s+\d+[\.\d]*|Theorem\s+\d+[\.\d]*|Lemma\s+\d+[\.\d]*|"
-            r"Proof\.?|Remark\.?|Corollary\s+\d+[\.\d]*|Exercise\s+\d+[\.\d]*|"
-            r"Application|Summary|Properties of|Exercises)",
+            r"^(Definition\b|Examples?\b|Note\b|Chapter Summary\b|"
+            r"Theorem\s+\d+[\.\d]*|Lemma\s+\d+[\.\d]*|"
+            r"Proof\.?|Corollary\s+\d+[\.\d]*)",
             re.MULTILINE
         )
         boundaries = [0]
@@ -421,10 +427,13 @@ def infer_metadata(text: str, page_num: int, book_title: str, author: str,
             if not meta["topic"]:
                 meta["topic"] = sec.group(3).strip()
 
+        # GameMath uses numbered sections like "1.1 Introduction" (no "Chapter" label)
         nsec = re.search(r"^(\d+\.\d+)\s+([A-Z][A-Za-z\s]{3,40})", text, re.MULTILINE)
         if nsec and not meta["section"]:
             meta["section"] = nsec.group(1)
             meta["topic"]   = nsec.group(2).strip()
+            if not meta["chapter"]:
+                meta["chapter"] = f"Chapter {nsec.group(1).split('.')[0]}"
 
         # If the chunk starts with a heading-like line, use it as the topic
         first_line = text.splitlines()[0].strip() if text.strip() else ""
@@ -689,11 +698,11 @@ def list_collections():
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    DEFAULT_PDF        = "data/textbooks/LinearAlgebra.pdf"
-    DEFAULT_COLLECTION = "linear_algebra"
-    DEFAULT_TITLE      = "Elementary Linear Algebra"
-    DEFAULT_AUTHOR     = "Ron Larson"
-    DEFAULT_START_PAGE = 11   # pages 1-10 are front matter / TOC / index
+    DEFAULT_PDF        = str(_ROOT / "data/textbooks/GameMath.pdf")
+    DEFAULT_COLLECTION = "game_math"
+    DEFAULT_TITLE      = "Essential Mathematics for Games and Interactive Applications"
+    DEFAULT_AUTHOR     = "James M. Van Verth, Lars M. Bishop"
+    DEFAULT_START_PAGE = 26   # pages 1-25 are front matter / TOC / preface / authors
 
     parser = argparse.ArgumentParser(
         description="Style-aware PDF ingester using PyMuPDF font detection",
