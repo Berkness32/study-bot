@@ -37,7 +37,7 @@ profiles:
     icon: "🎮"
     color: "#4a9eff"
     collections:
-      - linear_algebra
+      - game_math
       - unity_docs
     placeholder: "Ask about Unity, C#, game math..."
     system_prompt: |
