@@ -19,7 +19,10 @@ import json
 import os
 import platform
 import re
+import subprocess
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -28,7 +31,7 @@ import yaml
 from playwright.sync_api import sync_playwright
 from job_agent_support.db import (already_applied, log_application,
                                    is_dead_listing, log_dead_listing,
-                                   is_apply_later, log_apply_later)
+                                   log_apply_later)
 from job_agent_support.doc_builder import (
     ALLOWED_TAGS, validate_tag, generate_documents as _build_documents,
 )
@@ -42,10 +45,190 @@ CREDENTIALS_PATH = _ROOT / "job_agent_support/credentials.yaml"
 DB_PATH          = _ROOT / "data/job-apps/applications.db"
 SCAN_LOG_DIR     = _ROOT / "logs/job_agents_logs"
 CHAT_MODEL       = "qwen3:8b"
+LLAVA_MODEL      = "llava:13b"
+LLM_TIMEOUT      = 600                          # 10-min logical timeout (managed in _ollama_call)
+_OLLAMA_CLIENT   = ollama.Client(timeout=660)   # 11-min httpx backstop
+_MEMORY_LOG      = _ROOT / "logs/memory_log.json"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 ACTIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
 SCAN_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ── Ollama / memory helpers ───────────────────────────────────────────────────
+
+def _get_loaded_models() -> list[str]:
+    try:
+        return [m.model for m in _OLLAMA_CLIENT.ps().models]
+    except Exception:
+        return []
+
+
+def _stop_model(model_name: str) -> bool:
+    """Unload model_name from Ollama memory. Returns True if it was running."""
+    loaded = _get_loaded_models()
+    base   = model_name.split(":")[0].lower()
+    match  = next((m for m in loaded if base in m.lower()), None)
+    if not match:
+        return False
+    try:
+        _OLLAMA_CLIENT.generate(model=match, prompt="", keep_alive=0)
+        print(f"  🛑 Stopped {match} to free memory.")
+        return True
+    except Exception as e:
+        print(f"  ⚠️  Could not stop {match}: {e}")
+        return False
+
+
+def _memory_snapshot() -> dict:
+    snap = {
+        "timestamp":     datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "ollama_loaded": _get_loaded_models(),
+    }
+    try:
+        raw   = subprocess.check_output(["vm_stat"], text=True)
+        psize = 4096
+        mb    = {}
+        for line in raw.splitlines():
+            for k in ("Pages free", "Pages active", "Pages inactive",
+                      "Pages wired down", "Pages occupied by compressor"):
+                if line.startswith(k):
+                    v = int(re.sub(r"[^\d]", "", line.split(":")[-1]))
+                    mb[k] = round(v * psize / 1_048_576)
+        snap["memory_mb"] = mb
+    except Exception as e:
+        snap["vm_stat_error"] = str(e)
+    try:
+        out = subprocess.check_output(
+            "ps aux | sort -k4 -rn | head -11",
+            shell=True, text=True,
+        )
+        snap["top_processes"] = out.strip().splitlines()
+    except Exception as e:
+        snap["ps_error"] = str(e)
+    return snap
+
+
+def _print_and_log_snapshot(label: str) -> None:
+    snap = _memory_snapshot()
+    mb   = snap.get("memory_mb", {})
+    print(f"\n  📊 Memory [{label}] {snap['timestamp']}")
+    if mb:
+        print(f"     Free     : {mb.get('Pages free', '?')} MB")
+        print(f"     Active   : {mb.get('Pages active', '?')} MB")
+        print(f"     Wired    : {mb.get('Pages wired down', '?')} MB")
+        print(f"     Swapped  : {mb.get('Pages occupied by compressor', '?')} MB")
+    print(f"     Ollama   : {snap['ollama_loaded'] or 'none'}")
+    procs = snap.get("top_processes", [])
+    if procs:
+        print("     Top procs by %MEM:")
+        print(f"       {procs[0]}")          # header row
+        for line in procs[1:6]:             # top 5 processes
+            print(f"\n       {line}")
+
+    snap["label"] = label
+    entries = []
+    if _MEMORY_LOG.exists():
+        try:
+            with open(_MEMORY_LOG, encoding="utf-8") as f:
+                entries = json.load(f)
+        except Exception:
+            entries = []
+    entries.append(snap)
+    with open(_MEMORY_LOG, "w", encoding="utf-8") as f:
+        json.dump(entries, f, indent=2)
+
+
+def _ollama_call(messages: list, options: dict) -> dict:
+    """
+    Run _OLLAMA_CLIENT.chat in a background thread.
+    - Stops llava before starting if it is loaded.
+    - Prints memory snapshots at 2-min and 5-min marks.
+    - On timeout: prints memory, re-checks/stops llava, raises TimeoutError.
+    """
+    for m in list(_get_loaded_models()):
+        if "llava" in m.lower():
+            print(f"  ℹ️  {m} is loaded — stopping it to free memory...")
+            _stop_model(m)
+            time.sleep(1)
+
+    result: list = [None]
+    exc:    list = [None]
+
+    def _run():
+        try:
+            result[0] = _OLLAMA_CLIENT.chat(
+                model=CHAT_MODEL, messages=messages, options=options,
+            )
+        except Exception as e:
+            exc[0] = e
+
+    t     = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    start = time.time()
+    marks = [(120, "2-minute mark"), (300, "5-minute mark")]
+    seen  = set()
+
+    while t.is_alive():
+        elapsed = time.time() - start
+        if elapsed >= LLM_TIMEOUT:
+            print(f"\n  ⚠️  LLM call timed out after {LLM_TIMEOUT // 60} minutes.")
+            _print_and_log_snapshot("timeout")
+            for m in _get_loaded_models():
+                if "llava" in m.lower():
+                    _stop_model(m)
+            raise TimeoutError(
+                f"Ollama did not respond in {LLM_TIMEOUT // 60} min — "
+                "check memory pressure and retry."
+            )
+        for secs, lbl in marks:
+            if secs not in seen and elapsed >= secs:
+                seen.add(secs)
+                _print_and_log_snapshot(lbl)
+        t.join(timeout=1.0)
+
+    if exc[0] is not None:
+        raise exc[0]
+    return result[0]
+
+
+# ── Ollama preflight check ────────────────────────────────────────────────────
+
+def _check_ollama() -> None:
+    """Abort early if Ollama is unreachable, model is missing, or warmup times out."""
+    try:
+        names = [m.model for m in _OLLAMA_CLIENT.list().models]
+        if CHAT_MODEL not in names:
+            print(f"\n  ⚠️  Model '{CHAT_MODEL}' is not installed.")
+            print(f"  Run: ollama pull {CHAT_MODEL}")
+            sys.exit(1)
+    except Exception as e:
+        print(f"\n  ⚠️  Cannot reach Ollama: {e}")
+        print("  Make sure Ollama is running:  ollama serve")
+        sys.exit(1)
+
+    # Stop llava before warmup so the cold-load ping has full RAM available.
+    for m in list(_get_loaded_models()):
+        if "llava" in m.lower():
+            print(f"  ℹ️  Stopping {m} before warmup to free memory...")
+            _stop_model(m)
+
+    print("  🔍 Warming up Ollama (loading model into memory)...")
+    try:
+        _ollama_call(
+            messages=[{"role": "user", "content": "Reply with the single word: ready"}],
+            options={"temperature": 0, "num_predict": 5},
+        )
+        print("  ✅ Ollama is ready.")
+    except TimeoutError as e:
+        print(f"\n  ⚠️  {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n  ⚠️  Ollama warmup failed: {e}")
+        print("  The model may be swapping to disk — close other apps and retry.")
+        sys.exit(1)
+
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -266,9 +449,25 @@ def detect_job_not_found(page) -> bool:
         title = page.title().lower()
         if any(p in title for p in _NOT_FOUND_PHRASES):
             return True
-        # Check visible body text
+
+        # Check Workday-style error message element
+        error_el = page.query_selector('[data-automation-id="errorMessage"]')
+        if error_el and error_el.is_visible():
+            error_text = error_el.inner_text().lower()
+            if any(p in error_text for p in _NOT_FOUND_PHRASES):
+                return True
+
+        # Check #mainContent for not-found phrases (scoped, cheaper than full body)
+        main = page.query_selector("#mainContent")
+        if main:
+            main_text = main.inner_text().lower()
+            if any(p in main_text for p in _NOT_FOUND_PHRASES):
+                return True
+
+        # Fallback: check visible body text
         body = page.inner_text("body").lower()
         return any(p in body for p in _NOT_FOUND_PHRASES)
+
     except Exception:
         return False
 
@@ -306,8 +505,10 @@ def read_job_description(url: str, page) -> dict:
 
     print("  Navigating to job posting...")
     page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(2000)
-    full_text = page.inner_text("body")
+    page.wait_for_load_state("networkidle", timeout=15000)
+
+    job_body = page.query_selector('[id^="job-post-body-"]')
+    full_text = job_body.inner_text() if job_body and job_body.is_visible() else page.inner_text("body")
     title_tag = page.title()
 
     print("  Extracting job details with LLM...")
@@ -322,11 +523,27 @@ Job posting text:
 
 Return only valid JSON, no markdown, no explanation."""
 
-    response = ollama.chat(
-        model=CHAT_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        options={"temperature": 0},
-    )
+    try:
+        response = _ollama_call(
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0},
+        )
+    except TimeoutError:
+        raise
+    except Exception as e:
+        print(f"  ⚠️  LLM call failed ({e}) — using fallback values.")
+        return {
+            "job_title":        title_tag,
+            "company":          "Unknown",
+            "summary":          full_text[:500],
+            "requirements":     "",
+            "responsibilities": "",
+            "pay":              "Not listed",
+            "address":          None,
+            "url":              url,
+            "full_text":        full_text[:8000],
+            "apply_url":        url,
+        }
     raw = _strip_llm_raw(response["message"]["content"])
 
     try:
@@ -370,6 +587,7 @@ def select_tag(job_info: dict) -> dict:
     """
     print(f"\n{'='*60}")
     print("STEP 2 — Selecting position tag")
+    print(f"  URL: {job_info.get('url', 'N/A')}")
     print(f"{'='*60}")
 
     tag_descriptions = {
@@ -400,11 +618,16 @@ Responsibilities: {job_info.get('responsibilities', '')[:500]}
 Return ONLY valid JSON, no markdown:
 {{"primary_tag": "<tag>", "backup_tags": ["<tag2>", "<tag3>"]}}"""
 
-    response = ollama.chat(
-        model=CHAT_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        options={"temperature": 0},
-    )
+    try:
+        response = _ollama_call(
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0},
+        )
+    except TimeoutError:
+        raise
+    except Exception as e:
+        print(f"  ⚠️  LLM call failed ({e}) — defaulting tag to software_engineer.")
+        return {"primary_tag": "software_engineer", "backup_tags": ["it_help_desk", "admin"]}
     raw = _strip_llm_raw(response["message"]["content"])
 
     try:
@@ -428,6 +651,7 @@ Return ONLY valid JSON, no markdown:
 def generate_documents(job_info: dict, selected: dict, components: dict) -> dict:
     print(f"\n{'='*60}")
     print("STEP 3 — Generating tailored documents")
+    print(f"  URL: {job_info.get('url', 'N/A')}")
     print(f"{'='*60}")
     return _build_documents(
         primary_tag  = selected["primary_tag"],
@@ -440,28 +664,18 @@ def generate_documents(job_info: dict, selected: dict, components: dict) -> dict
 
 # ── Apply-URL resolver (follows intermediate company career pages) ─────────────
 
-def resolve_apply_url(url: str, page) -> str:
+def resolve_apply_url(url: str, page) -> tuple[str, object]:
     """
-    Navigate to url. If the page is an intermediate company career site
-    (has a visible Apply Now button but no application form fields), click it
-    and return the URL of the resulting page. Otherwise return url unchanged.
+    Starting from url, follow Apply Now buttons through intermediate pages
+    (e.g. listing site → company Phenom page → Workday) until a real
+    application form is reached or no more buttons are found.
+    Handles same-tab navigation and popup/new-tab openings.
+    Returns (final_url, final_page).
     """
-    try:
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(2000)
-    except Exception:
-        return url
-
-    # Already on a real application form — nothing to resolve
-    has_form = page.evaluate("""() => {
-        const fields = document.querySelectorAll('input:not([type=hidden]), textarea, select');
-        return fields.length > 0;
-    }""")
-    if has_form:
-        return url
-
-    # No form fields — look for an Apply Now button and click it
-    selectors = [
+    _SELECTORS = [
+        'a#applyButton',
+        'a[ph-tevent="apply_click"][title="Apply Now"]',
+        'a[aria-label="Apply to job"]',
         'a.button.job-apply',
         'a:has-text("Apply Now")',
         'a:has-text("APPLY NOW")',
@@ -472,20 +686,68 @@ def resolve_apply_url(url: str, page) -> str:
         'button:has-text("Apply for this job")',
         'button:has-text("Apply for Job")',
     ]
-    for sel in selectors:
+
+    current_url  = url
+    current_page = page
+
+    for hop in range(3):
         try:
-            el = page.query_selector(sel)
-            if el and el.is_visible():
-                print(f"  ↪  Intermediate page detected — clicking Apply Now...")
-                el.click()
-                page.wait_for_load_state("domcontentloaded", timeout=15000)
-                page.wait_for_timeout(2000)
-                final_url = page.url
-                print(f"     Landed on: {final_url}")
-                return final_url
+            current_page.goto(current_url, wait_until="domcontentloaded", timeout=30000)
+            current_page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception:
+            return current_url, current_page
+
+        has_form = current_page.evaluate("""() => {
+            const fields = document.querySelectorAll('input:not([type=hidden]), textarea, select');
+            return fields.length >= 5;
+        }""")
+        if has_form:
+            return current_url, current_page
+
+        # Close chatbot overlay before scanning for the Apply button.
+        try:
+            close_btn = current_page.get_by_role("button", name=re.compile(r"close chatbot", re.IGNORECASE))
+            if close_btn.count() > 0:
+                close_btn.click()
+                print("  Closed chatbot overlay.")
         except Exception:
             pass
-    return url
+
+        clicked = False
+        for sel in _SELECTORS:
+            try:
+                el = current_page.query_selector(sel)
+                if not (el and el.is_visible()):
+                    continue
+                pre_click_url = current_page.url
+                print(f"  ↪  hop {hop + 1}: clicking Apply Now via {sel!r}")
+                try:
+                    with current_page.expect_popup(timeout=10000) as popup_info:
+                        el.click()
+                    new_page = popup_info.value
+                    new_page.wait_for_load_state("domcontentloaded", timeout=30000)
+                    new_page.wait_for_load_state("networkidle", timeout=15000)
+                    current_url  = new_page.url
+                    current_page = new_page
+                    print(f"     Opened new tab: {current_url}")
+                except Exception:
+                    # No popup — button navigated current page
+                    current_page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    current_page.wait_for_load_state("networkidle", timeout=15000)
+                    current_url = current_page.url
+                    print(f"     Landed on: {current_url}")
+                    if current_url == pre_click_url:
+                        # URL didn't change (e.g. in-page modal) — try next selector
+                        continue
+                clicked = True
+                break
+            except Exception:
+                pass
+
+        if not clicked:
+            break  # no navigating Apply button found — stop
+
+    return current_url, current_page
 
 
 # ── Page scanner ─────────────────────────────────────────────────────────────
@@ -539,11 +801,12 @@ def scan_page_to_log(page, job_info: dict) -> Path:
 def inspect_application_form(url: str, page) -> list[dict]:
     print(f"\n{'='*60}")
     print("STEP 4 — Inspecting application form")
+    print(f"  URL: {url}")
     print(f"{'='*60}")
 
     if page.url != url:
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(2000)
+        page.wait_for_load_state("networkidle", timeout=15000)
 
     fields = page.evaluate("""() => {
         const results = [];
@@ -573,55 +836,6 @@ def inspect_application_form(url: str, page) -> list[dict]:
         print(f"    [{req}] {f['label']} ({f['field_type']})")
 
     return fields
-
-
-# ── Step 5: Fill form (page-by-page with approvals) ───────────────────────────
-
-def fill_application_form(url: str, job_info: dict, docs: dict,
-                          components: dict, fields: list, page) -> dict:
-    print(f"\n{'='*60}")
-    print("STEP 5 — Filling application form")
-    print("  Browser is visible — you can click in it at any time.")
-    print(f"{'='*60}")
-
-    ats      = detect_ats(url)
-    ats_mod  = load_ats_module(ats)
-    print(f"  ATS detected: {ats}")
-
-    page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(2000)
-
-    all_filled  = []
-    all_flagged = []
-
-    if ats_mod:
-        # ── Greenhouse / known ATS: page-by-page loop ─────────────────────────
-        page_num = 1
-        while True:
-            print(f"\n  --- Form page {page_num} ---")
-            result = ats_mod["fill_page"](page, job_info, docs, components)
-            all_filled.extend(result.get("filled_fields", []))
-            all_flagged.extend(result.get("flagged", []))
-
-            if ats_mod["has_next_page"](page):
-                if not ask_approval(f"Page {page_num} filled. Ready to click Next?"):
-                    print("  Stopped — browser left open. Complete manually.")
-                    input("  Press ENTER to close browser when done.")
-                    break
-                ats_mod["click_next"](page)
-                page.wait_for_timeout(2000)
-                page_num += 1
-            else:
-                # Final page
-                print(f"\n  ✅ All pages filled ({page_num} page(s) total).")
-                break
-    else:
-        # ── Generic fallback: fill what we can, then pause ────────────────────
-        _generic_fill(page, job_info, docs, components, fields, all_filled, all_flagged)
-        print("\n  ⏸  Form filled. Review the browser, then return here.")
-        input("  Press ENTER when ready to proceed to submit step...")
-
-    return {"filled_fields": all_filled, "flagged": all_flagged}
 
 
 def _generic_fill(page, job_info, docs, components, fields,
@@ -705,7 +919,7 @@ def submit_application(page, job_info: dict):
                 el = page.query_selector(sel)
                 if el and el.is_visible():
                     el.click()
-                    page.wait_for_timeout(3000)
+                    page.wait_for_load_state("networkidle", timeout=15000)
                     print("  ✅ Submit clicked.")
                     return
             except Exception:
@@ -740,6 +954,41 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
     job_info["source_board"] = source_board
     log_action("read_job_description",
                job_info.get("job_title", ""), job_info.get("company", ""), "success")
+
+    step1_choice = ask_choice(
+        "Step 1 complete — how would you like to proceed?",
+        {
+            "y": "Continue with application",
+            "a": "Already applied — log it and move on",
+            "d": "Dead listing — job no longer exists",
+            "n": "Skip — don't apply",
+        },
+    )
+    if step1_choice == "a":
+        log_application(DB_PATH, {
+            "job_title":    job_info.get("job_title"),
+            "company":      job_info.get("company"),
+            "job_board":    source_board,
+            "date_applied": datetime.now().strftime("%Y-%m-%d"),
+            "pay":          job_info.get("pay", "Not listed"),
+            "address":      job_info.get("address"),
+            "apply_url":    job_info.get("apply_url", url),
+            "resume_path":  None,
+            "easy_apply":   0,
+        })
+        log_action("already_applied",
+                   job_info.get("job_title", ""), job_info.get("company", ""), "applied")
+        print("  ✅ Logged as already applied.")
+        return
+    if step1_choice == "d":
+        _log_dead(url, job_info.get("job_title", ""),
+                  job_info.get("company", ""), source_board)
+        return
+    if step1_choice == "n":
+        log_action("skipped",
+                   job_info.get("job_title", ""), job_info.get("company", ""), "skipped")
+        print("  Skipped.")
+        return
 
     # ── Easy Apply check ──────────────────────────────────────────────────────
     easy_apply_info = detect_easy_apply(page)
@@ -831,7 +1080,10 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
         return
 
     # ── STEPS 4–6: Inspect → Fill → (Next → Re-inspect →...) → Submit ──────────
-    apply_url = resolve_apply_url(job_info.get("apply_url", url), page)
+    # Always start resolve from the original url so we follow the full
+    # intermediate-page chain (e.g. listing → Phenom → Workday) rather than
+    # jumping directly to whatever href read_job_description happened to extract.
+    apply_url, page = resolve_apply_url(url, page)
     job_info["apply_url"] = apply_url
 
     if detect_job_not_found(page):
@@ -858,15 +1110,24 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
                    job_info.get("job_title", ""), job_info.get("company", ""),
                    "success", f"page {page_num}, {len(fields)} fields")
 
+        if len(fields) == 0:
+            print("\n  ⚠️  No fields detected — the page may still be loading.")
+            print("     Use [r] to wait, navigate to the form, then re-inspect.")
+
         step4_choice = ask_choice(
             f"Page {page_num} — {len(fields)} field(s) found",
             {
                 "y": "Fill this page",
                 "s": "Scan — save full page HTML to log file",
                 "r": "Navigate manually — re-inspect when ready",
+                "d": "Log as dead listing — job no longer exists",
                 "n": "Stop here",
             },
         )
+        if step4_choice == "d":
+            _log_dead(page.url, job_info.get("job_title", ""),
+                      job_info.get("company", ""), source_board)
+            return
         if step4_choice == "n":
             log_action("step_4_approval",
                        job_info.get("job_title", ""), job_info.get("company", ""), "rejected")
@@ -891,17 +1152,23 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
         ats     = detect_ats(current_url)
         ats_mod = load_ats_module(ats)
         print(f"\n  ATS detected : {ats}")
-        print("  Filling page — browser is visible, you can click in it at any time.")
+        print("  Filling page — browser is visible, you can click in it at any time.")      
 
         # Workday may redirect to a login page — handle login before filling
         if ats == "workday":
-            from job_agent_support.ats.workday import _is_login_page, _do_login
+            page.wait_for_load_state("networkidle")
+            from job_agent_support.ats.workday import _is_login_page, _do_login, _handle_application_start_popup
+            _handle_application_start_popup(page)
             if _is_login_page(page):
                 _do_login(page)
-                page.wait_for_timeout(2000)
+                page.wait_for_load_state("networkidle", timeout=15000)
 
         if ats_mod:
             result = ats_mod["fill_page"](page, job_info, docs, components)
+            if result.get("dead_listing"):
+                _log_dead(page.url, job_info.get("job_title", ""),
+                          job_info.get("company", ""), source_board)
+                return
         else:
             filled_list, flagged_list = [], []
             _generic_fill(page, job_info, docs, components, fields, filled_list, flagged_list)
@@ -936,7 +1203,7 @@ def run_application_pipeline(url: str, page, components: dict, source_board: str
                 print("  ✅ Application logged as manually submitted.")
                 return
             ats_mod["click_next"](page)
-            page.wait_for_timeout(2000)
+            page.wait_for_load_state("networkidle", timeout=15000)
             apply_url = page.url
             continue  # back to Step 4 for the next page
 
@@ -1000,6 +1267,7 @@ def main():
     print("Pauses at each step for your approval.")
     print("="*60)
 
+    _check_ollama()
     components = load_components()
 
     # ── Direct URL mode (no board login) ──────────────────────────────────────
@@ -1072,14 +1340,14 @@ def main():
                     try:
                         page.goto(listing["url"],
                                   wait_until="domcontentloaded", timeout=30000)
-                        page.wait_for_timeout(2000)
+                        page.wait_for_load_state("networkidle", timeout=15000)
 
                         if detect_job_not_found(page):
                             _log_dead(listing["url"], listing["title"],
                                       listing["company"], board)
                             page.goto(listings_url,
                                       wait_until="domcontentloaded", timeout=30000)
-                            page.wait_for_timeout(2000)
+                            page.wait_for_load_state("networkidle", timeout=15000)
                             continue
 
                         preview = page.evaluate("""() => {
@@ -1101,13 +1369,45 @@ def main():
                         if preview:
                             print(f"  {preview[:300]}\n")
 
-                    if not ask_approval(
-                        f"Apply to '{listing['title']}' at {listing['company']}?"
-                    ):
-                        # Return to the listings page and move to the next card
+                    apply_choice = ask_choice(
+                        f"Apply to '{listing['title']}' at {listing['company']}?",
+                        {
+                            "y": "Yes — start application",
+                            "a": "Already applied — log it",
+                            "n": "No  — skip",
+                            "d": "Dead listing — job no longer exists",
+                        },
+                    )
+                    if apply_choice == "a":
+                        log_application(DB_PATH, {
+                            "job_title":    listing["title"],
+                            "company":      listing["company"],
+                            "job_board":    board,
+                            "date_applied": datetime.now().strftime("%Y-%m-%d"),
+                            "pay":          "Not listed",
+                            "address":      None,
+                            "apply_url":    listing["url"],
+                            "resume_path":  None,
+                            "easy_apply":   0,
+                        })
+                        log_action("already_applied",
+                                   listing["title"], listing["company"], "applied")
+                        print("  ✅ Logged as already applied.")
                         page.goto(listings_url,
                                   wait_until="domcontentloaded", timeout=30000)
-                        page.wait_for_timeout(2000)
+                        page.wait_for_load_state("networkidle", timeout=15000)
+                        continue
+                    if apply_choice == "d":
+                        _log_dead(listing["url"], listing["title"],
+                                  listing["company"], board)
+                        page.goto(listings_url,
+                                  wait_until="domcontentloaded", timeout=30000)
+                        page.wait_for_load_state("networkidle", timeout=15000)
+                        continue
+                    if apply_choice == "n":
+                        page.goto(listings_url,
+                                  wait_until="domcontentloaded", timeout=30000)
+                        page.wait_for_load_state("networkidle", timeout=15000)
                         continue
 
                     run_application_pipeline(
@@ -1117,7 +1417,7 @@ def main():
                     # Return to listings after the pipeline finishes
                     page.goto(listings_url,
                               wait_until="domcontentloaded", timeout=30000)
-                    page.wait_for_timeout(2000)
+                    page.wait_for_load_state("networkidle", timeout=15000)
 
             if not ask_approval("Move to the next page of results?"):
                 break

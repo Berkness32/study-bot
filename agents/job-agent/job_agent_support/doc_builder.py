@@ -383,9 +383,13 @@ def build_resume_docx(tag: str, job_info: dict, components: dict,
                 else:
                     _bullet(doc, course)
 
-    # ── Experience ────────────────────────────────────────────────────────────
+    # ── Experience (capped at 2 total jobs) ───────────────────────────────────
     related_exp, all_additional = select_experience(tag, components)
     add_exp = additional_exp if additional_exp is not None else all_additional
+
+    MAX_JOBS    = 2
+    related_exp = related_exp[:MAX_JOBS]
+    add_exp     = add_exp[:max(0, MAX_JOBS - len(related_exp))]
 
     if related_exp:
         _section_header(doc, "Related Experience:")
@@ -449,7 +453,7 @@ def build_cover_letter_docx(tag: str, job_info: dict, components: dict,
         paragraphs = select_cover_paragraphs(bt, cl_paras, job_info)
 
     p_info    = components["personal"]
-    font_size = 12.0
+    font_size = 10.0
 
     while True:
         doc = _make_cover_letter_doc(p_info, paragraphs, font_size)

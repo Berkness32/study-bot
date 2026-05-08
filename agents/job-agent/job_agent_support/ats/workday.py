@@ -148,7 +148,11 @@ def _handle_application_start_popup(page: Page) -> bool:
         el = page.query_selector('[data-automation-id="applyManually"]')
         if el and el.is_visible():
             el.click()
-            page.wait_for_timeout(2000)
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+            page.wait_for_timeout(1000)
             return True
     except Exception:
         pass
@@ -229,8 +233,7 @@ def _sign_in(page: Page, email: str, password: str) -> None:
     for sel in ['[data-automation-id="email"]', 'input[type="email"]']:
         el = page.query_selector(sel)
         if el and el.is_visible():
-            el.triple_click()
-            el.type(email, delay=30)
+            el.fill(email)
             break
 
     # Some tenants use a two-step flow: email → Next → password
@@ -245,8 +248,7 @@ def _sign_in(page: Page, email: str, password: str) -> None:
     for sel in ['[data-automation-id="password"]', 'input[type="password"]']:
         el = page.query_selector(sel)
         if el and el.is_visible():
-            el.triple_click()
-            el.type(password, delay=30)
+            el.fill(password)
             break
 
     # Submit
@@ -277,6 +279,10 @@ def _sign_in(page: Page, email: str, password: str) -> None:
 def _is_create_account_page(page: Page) -> bool:
     """Return True if the page is the Workday create-account form."""
     for sel in [
+        '[data-automation-id="signInContent"]',
+        '[data-automation-id="createAccountCheckbox"]',
+        '[data-automation-id="verifyPassword"]',
+        '[data-automation-id="click_filter"][aria-label="Create Account"]',
         '[data-automation-id="createAccountSubmitButton"]',
         '[data-automation-id="createAccountButton"]',
         '[data-automation-id="createAccountLink"]',
@@ -345,37 +351,7 @@ def _create_account(page: Page, email: str, password: str) -> None:
         try:
             el = page.query_selector(sel)
             if el and el.is_visible():
-                el.triple_click()
-                el.type(email, delay=30)
-                break
-        except Exception:
-            pass
-
-    # ── Fill first / last name ────────────────────────────────────────────────
-    for sel in [
-        '[data-automation-id="firstName"]',
-        'input[name="firstName"]',
-        'input[placeholder*="First"]',
-    ]:
-        try:
-            el = page.query_selector(sel)
-            if el and el.is_visible():
-                el.triple_click()
-                el.type(first_name, delay=30)
-                break
-        except Exception:
-            pass
-
-    for sel in [
-        '[data-automation-id="lastName"]',
-        'input[name="lastName"]',
-        'input[placeholder*="Last"]',
-    ]:
-        try:
-            el = page.query_selector(sel)
-            if el and el.is_visible():
-                el.triple_click()
-                el.type(last_name, delay=30)
+                el.fill(email)
                 break
         except Exception:
             pass
@@ -388,8 +364,7 @@ def _create_account(page: Page, email: str, password: str) -> None:
         try:
             el = page.query_selector(pw_sel)
             if el and el.is_visible():
-                el.triple_click()
-                el.type(password, delay=30)
+                el.fill(password)
         except Exception:
             pass
 
@@ -398,8 +373,7 @@ def _create_account(page: Page, email: str, password: str) -> None:
     for pw_el in pw_inputs:
         try:
             if pw_el.is_visible() and not pw_el.input_value():
-                pw_el.triple_click()
-                pw_el.type(password, delay=30)
+                pw_el.fill(password)
         except Exception:
             pass
 
@@ -463,6 +437,23 @@ def _is_verification_prompt(page: Page) -> bool:
         return False
 
 
+# ── Dead-listing detection ────────────────────────────────────────────────────
+
+def _is_workday_dead_listing(page: Page) -> bool:
+    """Return True if Workday is showing its 'page not found' error."""
+    try:
+        el = page.query_selector("span.css-78pczy")
+        if el and "doesn't exist" in (el.inner_text() or "").lower():
+            return True
+        # Fallback: plain text scan in case the CSS class changes
+        body = page.inner_text("body").lower()
+        if "the page you are looking for doesn't exist" in body:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 # ── Page detection ────────────────────────────────────────────────────────────
 
 _PAGE_CONTAINERS = {
@@ -489,7 +480,7 @@ def _detect_page(page: Page) -> tuple[str, str]:
 
 # ── Page readiness helper ─────────────────────────────────────────────────────
 
-def _wait_for_workday_ready(page: Page, timeout: int = 20000) -> None:
+def _wait_for_workday_ready(page: Page, timeout: int = 30000) -> None:
     """
     Wait for Workday's React app to render a recognizable page structure.
     Tries network-idle first, then polls for any known automation-id.
@@ -518,13 +509,24 @@ def fill_page(page: Page, job_info: dict, docs: dict, components: dict) -> dict:
     # Wait for Workday's React app to fully render before querying anything
     _wait_for_workday_ready(page)
 
+    if _is_workday_dead_listing(page):
+        _get_logger().warning(
+            "fill_page | dead listing | url=%s | job=%s",
+            page.url, job_info.get("job_title", ""),
+        )
+        print("  ⚠️  Workday: job page not found — will log as dead listing.")
+        return {"dead_listing": True, "filled_fields": [], "flagged": []}
+
     # Click the Apply button on the job listing page if present
     if _click_apply_button(page):
         _wait_for_workday_ready(page)
 
-    # Handle the "Start Your Application" popup — always pick Apply Manually
-    _handle_application_start_popup(page)
-    page.wait_for_timeout(1000)
+    # Handle the "Start Your Application" popup — always pick Apply Manually.
+    # If Apply Manually was clicked it triggers a page navigation, so wait for
+    # Workday to fully render the next page (create-account or sign-in form)
+    # before checking whether we need to authenticate.
+    if _handle_application_start_popup(page):
+        _wait_for_workday_ready(page)
 
     # Handle login / create-account page before doing anything else
     if _is_login_page(page) or _is_create_account_page(page):
@@ -532,6 +534,13 @@ def fill_page(page: Page, job_info: dict, docs: dict, components: dict) -> dict:
         _wait_for_workday_ready(page)
 
     container_id, page_key = _detect_page(page)
+
+    # If the page is still loading, wait and retry detection once
+    if page_key == "unknown":
+        _get_logger().warning("fill_page | page unknown after first wait — retrying in 8s")
+        page.wait_for_timeout(8000)
+        _wait_for_workday_ready(page)
+        container_id, page_key = _detect_page(page)
 
     # Merge workday-specific components (from workday_components.yaml)
     wdc      = _get_workday_components()
@@ -787,8 +796,7 @@ def _fill_text_in_container(page: Page, container_id: str, value: str,
             f'[data-automation-id="{container_id}"] textarea'
         )
         if el and el.is_visible():
-            el.triple_click()
-            el.type(value, delay=30)
+            el.fill(value)
             filled.append({"field": container_id, "value": value[:50]})
             return True
     except Exception as e:
@@ -804,11 +812,9 @@ def _fill_date_monthyear(page: Page, container_id: str, month: str, year: str,
         m_el = page.query_selector(f'{base} [data-automation-id="dateSectionMonth-input"]')
         y_el = page.query_selector(f'{base} [data-automation-id="dateSectionYear-input"]')
         if m_el and m_el.is_visible():
-            m_el.triple_click()
-            m_el.type(str(month), delay=30)
+            m_el.fill(str(month))
         if y_el and y_el.is_visible():
-            y_el.triple_click()
-            y_el.type(str(year), delay=30)
+            y_el.fill(str(year))
         filled.append({"field": container_id, "value": f"{month}/{year}"})
     except Exception as e:
         flagged.append({"field": container_id, "error": str(e)})
@@ -824,14 +830,11 @@ def _fill_date_monthday_year(page: Page, container_id: str,
         d_el = page.query_selector(f'{base} [data-automation-id="dateSectionDay-input"]')
         y_el = page.query_selector(f'{base} [data-automation-id="dateSectionYear-input"]')
         if m_el and m_el.is_visible():
-            m_el.triple_click()
-            m_el.type(month, delay=30)
+            m_el.fill(month)
         if d_el and d_el.is_visible():
-            d_el.triple_click()
-            d_el.type(day, delay=30)
+            d_el.fill(day)
         if y_el and y_el.is_visible():
-            y_el.triple_click()
-            y_el.type(year, delay=30)
+            y_el.fill(year)
         filled.append({"field": container_id, "value": f"{month}/{day}/{year}"})
     except Exception as e:
         flagged.append({"field": container_id, "error": str(e)})
@@ -850,7 +853,7 @@ def _select_multiselect_option(page: Page, container_id: str, value: str,
         )
         if text_input and text_input.is_visible():
             text_input.click()
-            text_input.type(value[:25], delay=40)
+            text_input.press_sequentially(value[:25], delay=40)
             page.wait_for_timeout(800)
 
             # Prefer exact-text match, fall back to first available option
@@ -1002,7 +1005,7 @@ def _type_to_add_skill(page: Page, skill: str, filled: list, flagged: list) -> N
         )
         if text_input and text_input.is_visible():
             text_input.click()
-            text_input.type(skill[:25], delay=40)
+            text_input.press_sequentially(skill[:25], delay=40)
             page.wait_for_timeout(600)
             option = page.query_selector(
                 f'[data-automation-id="promptOption"]:has-text("{skill[:25]}")'
